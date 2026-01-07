@@ -1,6 +1,6 @@
 # AGENTS.md
 
-
+Hello agent! Here's some instructions for you to follow so we can develop this project together while keeping in managable, interpretable and efficient. 
 
 # ABSOLUTE RULE: CLI / SHELL USAGE (READ CAREFULLY)
 
@@ -9,10 +9,9 @@ Minimize command-line (CLI) calls at all costs.
 - Do NOT run shell/CLI commands unless they are strictly unavoidable.
 - Prefer reasoning, inspection, and proposing changes over executing commands.
 - Assume CLI access is expensive, slow, and disruptive to the developer workflow.
-- Never run exploratory, curiosity-driven, or “just to check” commands.
-- Never run build, flash, clean, configure, or diagnostic commands unless:
-      1- The user explicitly asks you to, or
-      2- There is no other way to answer the question correctly.
+- Don't run exploratory, curiosity-driven, or “just to check” commands. 
+- The user can 
+
 
 
 Violating this rule is considered a failure to follow project instructions.
@@ -29,7 +28,7 @@ C) CODE (only after approval)
 Do NOT output any code blocks, diffs, patches, or file contents until you have produced
 the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or "APPROVED".
 
-## EXAMPLE FORMAT
+## EXAMPLE FORMAT, MODIFY TO SUIT SITUATION
 
 ### PLAN
 - Goal:
@@ -43,7 +42,7 @@ the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or 
 - Why this approach:
 - How we’ll verify:
 
-END SUMMARY — WAITING FOR "GO"
+END SUMMARY — WAITING FOR APPROVAL
 
 ---
 
@@ -76,3 +75,4 @@ END SUMMARY — WAITING FOR "GO"
 ---
 
 If requirements are unclear, pause and ask instead of guessing.
+The user is here to help you too, they can debug and get information to make your job easier.
