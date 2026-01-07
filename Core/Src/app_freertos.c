@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "debug_uart.h"
 
 /* USER CODE END Includes */
 
@@ -43,6 +44,27 @@ typedef StaticEventGroup_t osStaticEventGroupDef_t;
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+static const uint32_t kButtonDebounceMs = 20U;
+static uint32_t s_btn_last_tick[APP_BUTTON_COUNT];
+
+volatile uint32_t g_input_task_started = 0U;
+volatile uint32_t g_input_last_flags = 0U;
+volatile int32_t g_input_wait_result = 0;
+volatile uint32_t g_exti_callback_count = 0U;
+volatile uint32_t g_exti_last_pin = 0U;
+volatile uint32_t g_exti_last_flags = 0U;
+volatile uint32_t g_exti_last_kernel_state = 0U;
+volatile int32_t g_exti_last_qput_result = 0;
+volatile uint32_t g_exti_qput_attempts = 0U;
+volatile uint32_t g_exti_qput_errors = 0U;
+volatile uint32_t g_exti_last_event_id = 0U;
+volatile uint32_t g_exti_last_event_pressed = 0U;
+volatile uint32_t g_input_event_count = 0U;
+volatile uint32_t g_input_debounce_drops = 0U;
+volatile uint32_t g_input_invalid_count = 0U;
+volatile uint32_t g_input_ui_drop_count = 0U;
+volatile uint32_t g_ui_event_count = 0U;
+volatile uint32_t g_sys_event_count = 0U;
 
 /* USER CODE END Variables */
 /* Definitions for tskDisplay */
@@ -156,6 +178,11 @@ osMessageQueueId_t qSensorReqHandle;
 const osMessageQueueAttr_t qSensorReq_attributes = {
   .name = "qSensorReq"
 };
+/* Definitions for qInput */
+osMessageQueueId_t qInputHandle;
+const osMessageQueueAttr_t qInput_attributes = {
+  .name = "qInput"
+};
 /* Definitions for semWake */
 osSemaphoreId_t semWakeHandle;
 const osSemaphoreAttr_t semWake_attributes = {
@@ -188,6 +215,7 @@ const osEventFlagsAttr_t egDebug_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+static void app_input_process_event(const app_input_event_t *evt);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -275,6 +303,8 @@ void MX_FREERTOS_Init(void) {
   qStorageReqHandle = osMessageQueueNew (24, sizeof(8), &qStorageReq_attributes);
   /* creation of qSensorReq */
   qSensorReqHandle = osMessageQueueNew (16, sizeof(8), &qSensorReq_attributes);
+  /* creation of qInput */
+  qInputHandle = osMessageQueueNew (16, sizeof(4), &qInput_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -331,10 +361,12 @@ void MX_FREERTOS_Init(void) {
 void StartTaskDisplay(void *argument)
 {
   /* USER CODE BEGIN tskDisplay */
+  app_display_cmd_t cmd = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    (void)osMessageQueueGet(qDisplayCmdHandle, &cmd, NULL, osWaitForever);
   }
   /* USER CODE END tskDisplay */
 }
@@ -349,10 +381,15 @@ void StartTaskDisplay(void *argument)
 void StartTaskUI(void *argument)
 {
   /* USER CODE BEGIN tskUI */
+  app_ui_event_t ui_event = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    if (osMessageQueueGet(qUIEventsHandle, &ui_event, NULL, osWaitForever) == osOK)
+    {
+      g_ui_event_count++;
+    }
   }
   /* USER CODE END tskUI */
 }
@@ -367,10 +404,22 @@ void StartTaskUI(void *argument)
 void StartTaskInput(void *argument)
 {
   /* USER CODE BEGIN tskInput */
+  app_input_event_t evt = {0};
+  (void)argument;
+  g_input_task_started = 1U;
+  debug_uart_printf("tskInput start\r\n");
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    osStatus_t status = osMessageQueueGet(qInputHandle, &evt, NULL, osWaitForever);
+    g_input_wait_result = (int32_t)status;
+    if (status != osOK)
+    {
+      debug_uart_printf("qInput get err: 0x%08lx\r\n", (unsigned long)status);
+      continue;
+    }
+    app_input_process_event(&evt);
   }
   /* USER CODE END tskInput */
 }
@@ -385,10 +434,15 @@ void StartTaskInput(void *argument)
 void StartTaskPower(void *argument)
 {
   /* USER CODE BEGIN tskPower */
+  app_sys_event_t sys_event = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    if (osMessageQueueGet(qSysEventsHandle, &sys_event, NULL, osWaitForever) == osOK)
+    {
+      g_sys_event_count++;
+    }
   }
   /* USER CODE END tskPower */
 }
@@ -403,10 +457,12 @@ void StartTaskPower(void *argument)
 void StartTaskSensor(void *argument)
 {
   /* USER CODE BEGIN tskSensor */
+  app_sensor_req_t req = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    (void)osMessageQueueGet(qSensorReqHandle, &req, NULL, osWaitForever);
   }
   /* USER CODE END tskSensor */
 }
@@ -421,10 +477,12 @@ void StartTaskSensor(void *argument)
 void StartTaskFileSystem(void *argument)
 {
   /* USER CODE BEGIN tskStorage */
+  app_storage_req_t req = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    (void)osMessageQueueGet(qStorageReqHandle, &req, NULL, osWaitForever);
   }
   /* USER CODE END tskStorage */
 }
@@ -439,10 +497,12 @@ void StartTaskFileSystem(void *argument)
 void StartTaskGame(void *argument)
 {
   /* USER CODE BEGIN tskGame */
+  app_game_event_t event = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    (void)osMessageQueueGet(qGameEventsHandle, &event, NULL, osWaitForever);
   }
   /* USER CODE END tskGame */
 }
@@ -457,10 +517,12 @@ void StartTaskGame(void *argument)
 void StartTaskAudio(void *argument)
 {
   /* USER CODE BEGIN tskAudio */
+  app_audio_cmd_t cmd = 0U;
+  (void)argument;
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    (void)osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, osWaitForever);
   }
   /* USER CODE END tskAudio */
 }
@@ -483,6 +545,49 @@ void UITickTimerCb(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+static void app_input_process_event(const app_input_event_t *evt)
+{
+  if (evt == NULL)
+  {
+    return;
+  }
+
+  if (evt->button_id >= (uint8_t)APP_BUTTON_COUNT)
+  {
+    g_input_invalid_count++;
+    return;
+  }
+
+  uint32_t now = osKernelGetTickCount();
+  uint32_t last = s_btn_last_tick[evt->button_id];
+  if ((now - last) < kButtonDebounceMs)
+  {
+    g_input_debounce_drops++;
+    return;
+  }
+  s_btn_last_tick[evt->button_id] = now;
+
+  g_input_last_flags = ((uint32_t)evt->button_id) | ((uint32_t)evt->pressed << 8);
+  debug_uart_printf("input id=%lu state=%lu\r\n",
+                    (unsigned long)evt->button_id,
+                    (unsigned long)evt->pressed);
+
+  app_ui_event_t ui_event = g_input_last_flags;
+  if (osMessageQueuePut(qUIEventsHandle, &ui_event, 0U, 0U) == osOK)
+  {
+    g_input_event_count++;
+  }
+  else
+  {
+    g_input_ui_drop_count++;
+  }
+
+  if (evt->button_id == (uint8_t)APP_BUTTON_BOOT)
+  {
+    app_sys_event_t sys_event = APP_SYS_EVENT_BOOT_BUTTON;
+    (void)osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, 0U);
+  }
+}
 
 /* USER CODE END Application */
 

@@ -485,25 +485,122 @@ Rules:
 
 ---
 
-## Queue/Event Model (High level)
-
 ### Queues
-- `qUIEvents`: tskInput → tskUI
-- `qGameEvents`: tskInput → tskGame
-- `qSysEvents`: many producers → tskPower (system authority)
-- `qDisplayCmd`: UI/game → display
-- `qAudioCmd`: UI/game → audio
-- `qStorageReq`: UI/game/audio → storage
-- `qSensorReq`: UI/game → sensor
 
-### Event Groups (optional)
-- `egMode`: MODE_GAME, MODE_SLEEPFACE, etc.
-- `egPower`: QUIESCE_REQ (broadcast), ack tracking scheme (implementation choice)
+#### qUIEvents
+- Input events routed to the UI
+- Producer: tskInput
+- Consumer: tskUI
 
-### DMA done signaling
-- Prefer thread flags to the owning task:
-  - SPI3 LPDMA done → tskDisplay flag
-  - SAI DMA half/full → tskAudio flags
+#### qGameEvents
+- Input events routed to the active game
+- Producer: tskInput
+- Consumer: tskGame
+
+#### qSysEvents
+- System-level commands and notifications
+- Producers: multiple tasks
+- Consumer: tskPower
+- Used for mode changes, audio/stream requests, inactivity timeout, wake reasons
+
+#### qDisplayCmd
+- Display intent commands (invalidate, redraw, present)
+- Producers: tskUI, tskGame
+- Consumer: tskDisplay
+
+#### qAudioCmd
+- Audio playback and control commands
+- Producers: tskUI, tskGame
+- Consumer: tskAudio
+
+#### qStorageReq
+- Filesystem and flash access requests
+- Producers: tskUI, tskGame, tskAudio
+- Consumer: tskStorage
+
+#### qSensorReq
+- Sensor polling and configuration requests
+- Producers: tskUI, tskGame
+- Consumer: tskSensor
+
+---
+
+### Event Groups
+
+#### egMode
+- Holds high-level operating mode
+- Used to indicate UI mode, game mode, or sleep-face mode
+
+#### egPower
+- Used for power coordination
+- Broadcasts quiesce requests before STOP2
+- Optional acknowledgment tracking
+
+#### egDebug
+- Indicates debug mode is enabled
+- Used by power manager to keep HSI and debug UART active
+
+---
+
+### Software Timers
+
+#### tmrInactivity
+- One-shot inactivity timer
+- Reset on any user interaction
+- On expiry, signals power manager to prepare for STOP2
+
+#### tmrUITick
+- Optional periodic UI or game tick while awake
+- Must be stopped before entering STOP2
+- Not used for sleep clock face
+
+---
+
+### Mutexes
+
+#### mtxLog
+- Protects debug/log output
+- Used only when debug logging is enabled
+
+#### mtxSettings
+- Protects shared settings and configuration data
+- Accessed by UI, storage, and power logic
+
+---
+
+### Semaphores
+
+#### semWake (optional)
+- Optional binary semaphore for wake coordination
+- Only used if required by implementation details
+
+---
+
+### Thread Flags
+
+#### Display DMA completion
+- Set by SPI3 LPDMA ISR
+- Signals tskDisplay that a flush has completed
+
+#### Audio DMA half/full
+- Set by SAI DMA ISR
+- Signals tskAudio to refill or swap audio buffers
+
+#### Game shutdown coordination
+- Used internally by tskGame
+- Ensures clean game/module shutdown before sleep
+
+---
+
+### ISR Signaling Summary
+
+- Button and joystick EXTI ISRs signal tskInput
+- LPUART RX/IDLE ISR signals tskInput
+- SPI3 LPDMA completion ISR signals tskDisplay
+- SAI DMA ISR signals tskAudio
+- RTC wake ISR signals tskPower
+
+ISRs never perform work beyond signaling.
 
 ---
 
@@ -559,7 +656,14 @@ Goal: tasks run, queues work, heap stable.
 - [ ] Confirm stack overflow check and malloc failed hook are enabled
 - [ ] Create tasks and ensure each blocks correctly (no polling loops)
 - [ ] Confirm qSysEvents path to tskPower exists (tskPower can be a stub initially)
-- [ ] Confirm button EXTI events can reach tskInput then tskUI (UI mode only)
+- [x] Confirm button EXTI events can reach tskInput then tskUI (UI mode only)
+
+Implementation notes (Phase 0 input path):
+- Buttons use EXTI rising/falling callbacks to keep ISR work minimal.
+- ISR bridge maps pin -> raw input event and posts to qInput (CubeMX-created, 4-byte item).
+- tskInput blocks on qInput, debounces (20 ms), then routes to qUIEvents.
+- BTN_BOOT additionally posts a system event to qSysEvents.
+- Debug visibility via USART1 DMA logging, gated by DEBUGGING, using mtxLog.
 
 Acceptance:
 - Boots reliably

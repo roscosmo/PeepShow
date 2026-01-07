@@ -22,6 +22,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app_freertos.h"
+#include "debug_uart.h"
+#include "rtos_isr_bridge.h"
 
 /* USER CODE END Includes */
 
@@ -47,7 +50,6 @@ I2C_HandleTypeDef hi2c3;
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef handle_GPDMA1_Channel2;
-DMA_HandleTypeDef handle_GPDMA1_Channel1;
 
 OSPI_HandleTypeDef hospi1;
 DMA_HandleTypeDef handle_GPDMA1_Channel5;
@@ -276,8 +278,6 @@ static void MX_GPDMA1_Init(void)
   __HAL_RCC_GPDMA1_CLK_ENABLE();
 
   /* GPDMA1 interrupt Init */
-    HAL_NVIC_SetPriority(GPDMA1_Channel1_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(GPDMA1_Channel1_IRQn);
     HAL_NVIC_SetPriority(GPDMA1_Channel2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(GPDMA1_Channel2_IRQn);
     HAL_NVIC_SetPriority(GPDMA1_Channel3_IRQn, 5, 0);
@@ -759,10 +759,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOH_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, E5_RST_Pin|E5_BOOT_Pin|SD_MODE_Pin|VLT_LCD_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, E5_RST_Pin|VLT_LCD_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(VLT_E5_GPIO_Port, VLT_E5_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(VLT_E5_GPIO_Port, VLT_E5_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, E5_BOOT_Pin|SD_MODE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPI3_CS_GPIO_Port, SPI3_CS_Pin, GPIO_PIN_RESET);
@@ -793,8 +796,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(VLT_E5_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LIS2DUX_INT2_Pin LIS2DUX_INT1_Pin ADP5360_INT_Pin BTN_L_Pin */
-  GPIO_InitStruct.Pin = LIS2DUX_INT2_Pin|LIS2DUX_INT1_Pin|ADP5360_INT_Pin|BTN_L_Pin;
+  /*Configure GPIO pins : LIS2DUX_INT2_Pin LIS2DUX_INT1_Pin ADP5360_INT_Pin */
+  GPIO_InitStruct.Pin = LIS2DUX_INT2_Pin|LIS2DUX_INT1_Pin|ADP5360_INT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -814,15 +817,15 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : BTN_BOOT_Pin */
   GPIO_InitStruct.Pin = BTN_BOOT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BTN_BOOT_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BTN_R_Pin */
-  GPIO_InitStruct.Pin = BTN_R_Pin;
+  /*Configure GPIO pins : BTN_L_Pin BTN_R_Pin */
+  GPIO_InitStruct.Pin = BTN_L_Pin|BTN_R_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BTN_R_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
@@ -857,6 +860,31 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
+{
+  rtos_isr_bridge_handle_exti(GPIO_Pin);
+}
+
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
+{
+  rtos_isr_bridge_handle_exti(GPIO_Pin);
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    debug_uart_tx_done();
+  }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    debug_uart_tx_done();
+  }
+}
 
 /* USER CODE END 4 */
 
