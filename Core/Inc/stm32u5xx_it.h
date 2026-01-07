@@ -71,6 +71,8 @@ void TIM6_IRQHandler(void);
 void USART1_IRQHandler(void);
 void LPUART1_IRQHandler(void);
 void SAI1_IRQHandler(void);
+void SPI3_IRQHandler(void);
+void LPDMA1_Channel0_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */

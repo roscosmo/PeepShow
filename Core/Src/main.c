@@ -44,8 +44,6 @@
 
 I2C_HandleTypeDef hi2c3;
 
-DMA_HandleTypeDef handle_LPDMA1_Channel0;
-
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef handle_GPDMA1_Channel2;
@@ -61,6 +59,7 @@ SAI_HandleTypeDef hsai_BlockA1;
 DMA_HandleTypeDef handle_GPDMA1_Channel3;
 
 SPI_HandleTypeDef hspi3;
+DMA_HandleTypeDef handle_LPDMA1_Channel0;
 
 /* USER CODE BEGIN PV */
 
@@ -392,22 +391,13 @@ static void MX_LPDMA1_Init(void)
   /* Peripheral clock enable */
   __HAL_RCC_LPDMA1_CLK_ENABLE();
 
+  /* LPDMA1 interrupt Init */
+    HAL_NVIC_SetPriority(LPDMA1_Channel0_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(LPDMA1_Channel0_IRQn);
+
   /* USER CODE BEGIN LPDMA1_Init 1 */
 
   /* USER CODE END LPDMA1_Init 1 */
-  handle_LPDMA1_Channel0.Instance = LPDMA1_Channel0;
-  handle_LPDMA1_Channel0.InitLinkedList.Priority = DMA_LOW_PRIORITY_HIGH_WEIGHT;
-  handle_LPDMA1_Channel0.InitLinkedList.LinkStepMode = DMA_LSM_FULL_EXECUTION;
-  handle_LPDMA1_Channel0.InitLinkedList.TransferEventMode = DMA_TCEM_LAST_LL_ITEM_TRANSFER;
-  handle_LPDMA1_Channel0.InitLinkedList.LinkedListMode = DMA_LINKEDLIST_NORMAL;
-  if (HAL_DMAEx_List_Init(&handle_LPDMA1_Channel0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_DMA_ConfigChannelAttributes(&handle_LPDMA1_Channel0, DMA_CHANNEL_NPRIV) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN LPDMA1_Init 2 */
 
   /* USER CODE END LPDMA1_Init 2 */
@@ -718,7 +708,7 @@ static void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -737,7 +727,7 @@ static void MX_SPI3_Init(void)
   {
     Error_Handler();
   }
-  HAL_SPI_AutonomousMode_Cfg_Struct.TriggerState = SPI_AUTO_MODE_ENABLE;
+  HAL_SPI_AutonomousMode_Cfg_Struct.TriggerState = SPI_AUTO_MODE_DISABLE;
   HAL_SPI_AutonomousMode_Cfg_Struct.TriggerSelection = SPI_GRP2_LPDMA_CH0_TCF_TRG;
   HAL_SPI_AutonomousMode_Cfg_Struct.TriggerPolarity = SPI_TRIG_POLARITY_RISING;
   if (HAL_SPIEx_SetConfigAutonomousMode(&hspi3, &HAL_SPI_AutonomousMode_Cfg_Struct) != HAL_OK)
@@ -777,11 +767,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPI3_CS_GPIO_Port, SPI3_CS_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : BTN_A_Pin */
-  GPIO_InitStruct.Pin = BTN_A_Pin;
+  /*Configure GPIO pin : BTN_B_Pin */
+  GPIO_InitStruct.Pin = BTN_B_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BTN_A_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(BTN_B_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : E5_RST_Pin E5_BOOT_Pin SD_MODE_Pin VLT_LCD_Pin */
   GPIO_InitStruct.Pin = E5_RST_Pin|E5_BOOT_Pin|SD_MODE_Pin|VLT_LCD_Pin;
@@ -790,11 +780,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BTN_B_Pin */
-  GPIO_InitStruct.Pin = BTN_B_Pin;
+  /*Configure GPIO pin : BTN_A_Pin */
+  GPIO_InitStruct.Pin = BTN_A_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BTN_B_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(BTN_A_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : VLT_E5_Pin */
   GPIO_InitStruct.Pin = VLT_E5_Pin;

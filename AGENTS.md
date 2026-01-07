@@ -14,12 +14,6 @@ Minimize command-line (CLI) calls at all costs.
       1- The user explicitly asks you to, or
       2- There is no other way to answer the question correctly.
 
-If you believe a CLI command is required:
-
-- First explain why it is unavoidable.
-- State exactly which command you would run and what information you expect.
-- Wait for explicit approval before running anything.
-- If many commands are expected to be required, only ask once
 
 Violating this rule is considered a failure to follow project instructions.
 
@@ -35,7 +29,7 @@ C) CODE (only after approval)
 Do NOT output any code blocks, diffs, patches, or file contents until you have produced
 the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or "APPROVED".
 
-## REQUIRED FORMAT (copy exactly)
+## EXAMPLE FORMAT
 
 ### PLAN
 - Goal:
@@ -50,11 +44,6 @@ the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or 
 - How we’ll verify:
 
 END SUMMARY — WAITING FOR "GO"
-
-## If the user asks for code immediately
-Still output PLAN + SUMMARY first, then wait for "GO".
-
-
 
 ---
 

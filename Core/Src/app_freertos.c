@@ -26,11 +26,6 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-typedef StaticTask_t osStaticThreadDef_t;
-typedef StaticQueue_t osStaticMessageQDef_t;
-typedef StaticTimer_t osStaticTimerDef_t;
-typedef StaticSemaphore_t osStaticMutexDef_t;
-typedef StaticSemaphore_t osStaticSemaphoreDef_t;
 typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN PTD */
 
@@ -52,216 +47,119 @@ typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE END Variables */
 /* Definitions for tskDisplay */
 osThreadId_t tskDisplayHandle;
-uint32_t tskDisplayStack[ 1024 ];
-osStaticThreadDef_t tskDisplayTCB;
 const osThreadAttr_t tskDisplay_attributes = {
   .name = "tskDisplay",
-  .stack_mem = &tskDisplayStack[0],
-  .stack_size = sizeof(tskDisplayStack),
-  .cb_mem = &tskDisplayTCB,
-  .cb_size = sizeof(tskDisplayTCB),
   .priority = (osPriority_t) osPriorityHigh,
+  .stack_size = 1024 * 4
 };
 /* Definitions for tskUI */
 osThreadId_t tskUIHandle;
-uint32_t tskUIStack[ 768 ];
-osStaticThreadDef_t tskUITCB;
 const osThreadAttr_t tskUI_attributes = {
   .name = "tskUI",
-  .stack_mem = &tskUIStack[0],
-  .stack_size = sizeof(tskUIStack),
-  .cb_mem = &tskUITCB,
-  .cb_size = sizeof(tskUITCB),
   .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 768 * 4
 };
 /* Definitions for tskInput */
 osThreadId_t tskInputHandle;
-uint32_t tskInputStack[ 384 ];
-osStaticThreadDef_t tskInputTCB;
 const osThreadAttr_t tskInput_attributes = {
   .name = "tskInput",
-  .stack_mem = &tskInputStack[0],
-  .stack_size = sizeof(tskInputStack),
-  .cb_mem = &tskInputTCB,
-  .cb_size = sizeof(tskInputTCB),
   .priority = (osPriority_t) osPriorityAboveNormal,
+  .stack_size = 384 * 4
 };
 /* Definitions for tskPower */
 osThreadId_t tskPowerHandle;
-uint32_t tskPowerStack[ 384 ];
-osStaticThreadDef_t tskPowerTCB;
 const osThreadAttr_t tskPower_attributes = {
   .name = "tskPower",
-  .stack_mem = &tskPowerStack[0],
-  .stack_size = sizeof(tskPowerStack),
-  .cb_mem = &tskPowerTCB,
-  .cb_size = sizeof(tskPowerTCB),
   .priority = (osPriority_t) osPriorityBelowNormal,
+  .stack_size = 384 * 4
 };
 /* Definitions for tskSensor */
 osThreadId_t tskSensorHandle;
-uint32_t tskSensorStack[ 384 ];
-osStaticThreadDef_t tskSensorTCB;
 const osThreadAttr_t tskSensor_attributes = {
   .name = "tskSensor",
-  .stack_mem = &tskSensorStack[0],
-  .stack_size = sizeof(tskSensorStack),
-  .cb_mem = &tskSensorTCB,
-  .cb_size = sizeof(tskSensorTCB),
   .priority = (osPriority_t) osPriorityBelowNormal,
+  .stack_size = 384 * 4
 };
 /* Definitions for tskStorage */
 osThreadId_t tskStorageHandle;
-uint32_t tskStorageStack[ 1024 ];
-osStaticThreadDef_t tskStorageTCB;
 const osThreadAttr_t tskStorage_attributes = {
   .name = "tskStorage",
-  .stack_mem = &tskStorageStack[0],
-  .stack_size = sizeof(tskStorageStack),
-  .cb_mem = &tskStorageTCB,
-  .cb_size = sizeof(tskStorageTCB),
   .priority = (osPriority_t) osPriorityLow,
+  .stack_size = 1024 * 4
 };
 /* Definitions for tskGame */
 osThreadId_t tskGameHandle;
-uint32_t tskGameStack[ 768 ];
-osStaticThreadDef_t tskGameTCB;
 const osThreadAttr_t tskGame_attributes = {
   .name = "tskGame",
-  .stack_mem = &tskGameStack[0],
-  .stack_size = sizeof(tskGameStack),
-  .cb_mem = &tskGameTCB,
-  .cb_size = sizeof(tskGameTCB),
   .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 768 * 4
 };
 /* Definitions for tskAudio */
 osThreadId_t tskAudioHandle;
-uint32_t tskAudioStack[ 512 ];
-osStaticThreadDef_t tskAudioTCB;
 const osThreadAttr_t tskAudio_attributes = {
   .name = "tskAudio",
-  .stack_mem = &tskAudioStack[0],
-  .stack_size = sizeof(tskAudioStack),
-  .cb_mem = &tskAudioTCB,
-  .cb_size = sizeof(tskAudioTCB),
   .priority = (osPriority_t) osPriorityRealtime,
+  .stack_size = 512 * 4
 };
 /* Definitions for mtxLog */
 osMutexId_t mtxLogHandle;
-osStaticMutexDef_t mtxLogCB;
 const osMutexAttr_t mtxLog_attributes = {
-  .name = "mtxLog",
-  .cb_mem = &mtxLogCB,
-  .cb_size = sizeof(mtxLogCB),
+  .name = "mtxLog"
 };
 /* Definitions for mtxSettings */
 osMutexId_t mtxSettingsHandle;
-osStaticMutexDef_t mtxSettingsCB;
 const osMutexAttr_t mtxSettings_attributes = {
-  .name = "mtxSettings",
-  .cb_mem = &mtxSettingsCB,
-  .cb_size = sizeof(mtxSettingsCB),
+  .name = "mtxSettings"
 };
 /* Definitions for tmrInactivity */
 osTimerId_t tmrInactivityHandle;
-osStaticTimerDef_t tmrInactivityCB;
 const osTimerAttr_t tmrInactivity_attributes = {
-  .name = "tmrInactivity",
-  .cb_mem = &tmrInactivityCB,
-  .cb_size = sizeof(tmrInactivityCB),
+  .name = "tmrInactivity"
 };
 /* Definitions for tmrUITick */
 osTimerId_t tmrUITickHandle;
-osStaticTimerDef_t tmrUITickCB;
 const osTimerAttr_t tmrUITick_attributes = {
-  .name = "tmrUITick",
-  .cb_mem = &tmrUITickCB,
-  .cb_size = sizeof(tmrUITickCB),
+  .name = "tmrUITick"
 };
 /* Definitions for qUIEvents */
 osMessageQueueId_t qUIEventsHandle;
-uint8_t qUIEventsBuf[ 16 * sizeof( 16 ) ];
-osStaticMessageQDef_t qUIEventsCB;
 const osMessageQueueAttr_t qUIEvents_attributes = {
-  .name = "qUIEvents",
-  .cb_mem = &qUIEventsCB,
-  .cb_size = sizeof(qUIEventsCB),
-  .mq_mem = &qUIEventsBuf,
-  .mq_size = sizeof(qUIEventsBuf)
+  .name = "qUIEvents"
 };
 /* Definitions for qGameEvents */
 osMessageQueueId_t qGameEventsHandle;
-uint8_t qGameEventsBuf[ 16 * sizeof( 16 ) ];
-osStaticMessageQDef_t qGameEventsCB;
 const osMessageQueueAttr_t qGameEvents_attributes = {
-  .name = "qGameEvents",
-  .cb_mem = &qGameEventsCB,
-  .cb_size = sizeof(qGameEventsCB),
-  .mq_mem = &qGameEventsBuf,
-  .mq_size = sizeof(qGameEventsBuf)
+  .name = "qGameEvents"
 };
 /* Definitions for qSysEvents */
 osMessageQueueId_t qSysEventsHandle;
-uint8_t qSysEventsBuf[ 16 * sizeof( 16 ) ];
-osStaticMessageQDef_t qSysEventsCB;
 const osMessageQueueAttr_t qSysEvents_attributes = {
-  .name = "qSysEvents",
-  .cb_mem = &qSysEventsCB,
-  .cb_size = sizeof(qSysEventsCB),
-  .mq_mem = &qSysEventsBuf,
-  .mq_size = sizeof(qSysEventsBuf)
+  .name = "qSysEvents"
 };
 /* Definitions for qDisplayCmd */
 osMessageQueueId_t qDisplayCmdHandle;
-uint8_t qDisplayCmdBuf[ 16 * sizeof( 16 ) ];
-osStaticMessageQDef_t qDisplayCmdCB;
 const osMessageQueueAttr_t qDisplayCmd_attributes = {
-  .name = "qDisplayCmd",
-  .cb_mem = &qDisplayCmdCB,
-  .cb_size = sizeof(qDisplayCmdCB),
-  .mq_mem = &qDisplayCmdBuf,
-  .mq_size = sizeof(qDisplayCmdBuf)
+  .name = "qDisplayCmd"
 };
 /* Definitions for qAudioCmd */
 osMessageQueueId_t qAudioCmdHandle;
-uint8_t qAudioCmdBuf[ 16 * sizeof( 16 ) ];
-osStaticMessageQDef_t qAudioCmdCB;
 const osMessageQueueAttr_t qAudioCmd_attributes = {
-  .name = "qAudioCmd",
-  .cb_mem = &qAudioCmdCB,
-  .cb_size = sizeof(qAudioCmdCB),
-  .mq_mem = &qAudioCmdBuf,
-  .mq_size = sizeof(qAudioCmdBuf)
+  .name = "qAudioCmd"
 };
 /* Definitions for qStorageReq */
 osMessageQueueId_t qStorageReqHandle;
-uint8_t qStorageReqBuf[ 24 * sizeof( 8 ) ];
-osStaticMessageQDef_t qStorageReqCB;
 const osMessageQueueAttr_t qStorageReq_attributes = {
-  .name = "qStorageReq",
-  .cb_mem = &qStorageReqCB,
-  .cb_size = sizeof(qStorageReqCB),
-  .mq_mem = &qStorageReqBuf,
-  .mq_size = sizeof(qStorageReqBuf)
+  .name = "qStorageReq"
 };
 /* Definitions for qSensorReq */
 osMessageQueueId_t qSensorReqHandle;
-uint8_t qSensorReqBuf[ 16 * sizeof( 8 ) ];
-osStaticMessageQDef_t qSensorReqCB;
 const osMessageQueueAttr_t qSensorReq_attributes = {
-  .name = "qSensorReq",
-  .cb_mem = &qSensorReqCB,
-  .cb_size = sizeof(qSensorReqCB),
-  .mq_mem = &qSensorReqBuf,
-  .mq_size = sizeof(qSensorReqBuf)
+  .name = "qSensorReq"
 };
 /* Definitions for semWake */
 osSemaphoreId_t semWakeHandle;
-osStaticSemaphoreDef_t semWakeCB;
 const osSemaphoreAttr_t semWake_attributes = {
-  .name = "semWake",
-  .cb_mem = &semWakeCB,
-  .cb_size = sizeof(semWakeCB),
+  .name = "semWake"
 };
 /* Definitions for egMode */
 osEventFlagsId_t egModeHandle;

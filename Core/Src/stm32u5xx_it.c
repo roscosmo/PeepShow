@@ -64,6 +64,8 @@ extern DMA_HandleTypeDef handle_GPDMA1_Channel4;
 extern RTC_HandleTypeDef hrtc;
 extern DMA_HandleTypeDef handle_GPDMA1_Channel3;
 extern SAI_HandleTypeDef hsai_BlockA1;
+extern DMA_HandleTypeDef handle_LPDMA1_Channel0;
+extern SPI_HandleTypeDef hspi3;
 extern TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN EV */
@@ -190,7 +192,7 @@ void EXTI1_IRQHandler(void)
   /* USER CODE BEGIN EXTI1_IRQn 0 */
 
   /* USER CODE END EXTI1_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(BTN_B_Pin);
+  HAL_GPIO_EXTI_IRQHandler(BTN_A_Pin);
   /* USER CODE BEGIN EXTI1_IRQn 1 */
 
   /* USER CODE END EXTI1_IRQn 1 */
@@ -204,7 +206,7 @@ void EXTI2_IRQHandler(void)
   /* USER CODE BEGIN EXTI2_IRQn 0 */
 
   /* USER CODE END EXTI2_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(BTN_A_Pin);
+  HAL_GPIO_EXTI_IRQHandler(BTN_B_Pin);
   /* USER CODE BEGIN EXTI2_IRQn 1 */
 
   /* USER CODE END EXTI2_IRQn 1 */
@@ -432,6 +434,34 @@ void SAI1_IRQHandler(void)
   /* USER CODE BEGIN SAI1_IRQn 1 */
 
   /* USER CODE END SAI1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles SPI3 global interrupt.
+  */
+void SPI3_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI3_IRQn 0 */
+
+  /* USER CODE END SPI3_IRQn 0 */
+  HAL_SPI_IRQHandler(&hspi3);
+  /* USER CODE BEGIN SPI3_IRQn 1 */
+
+  /* USER CODE END SPI3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles LPDMA1 SmartRun Channel 0 global interrupt.
+  */
+void LPDMA1_Channel0_IRQHandler(void)
+{
+  /* USER CODE BEGIN LPDMA1_Channel0_IRQn 0 */
+
+  /* USER CODE END LPDMA1_Channel0_IRQn 0 */
+  HAL_DMA_IRQHandler(&handle_LPDMA1_Channel0);
+  /* USER CODE BEGIN LPDMA1_Channel0_IRQn 1 */
+
+  /* USER CODE END LPDMA1_Channel0_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
