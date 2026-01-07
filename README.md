@@ -61,6 +61,86 @@ Wake → ~15s no interaction → Sleep (STOP2) → Wake on input/IRQ → repeat
 
 ---
 
+## Control Pins and Functions
+
+### User Input Buttons
+- **BTN_A**  
+  Primary user button A.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **BTN_B**  
+  Primary user button B.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **BTN_C**  
+  Primary user button C.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **BTN_D**  
+  Primary user button D.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **BTN_BOOT**  
+  Physically smaller “executive” button (red-button style), reserved for special or low-level commands.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+---
+
+### Voltage Level Translators
+- **VLT_LCD**  
+  Controls the voltage level translator required for SPI3 communication with the Sharp Memory LCD.  
+  Active high.  
+  Configured as GPIO output, push-pull.  
+  Must be driven high before any display SPI transactions.
+
+- **VLT_E5**  
+  Controls the voltage level translator required for LPUART1 communication with the WIO E5 module.  
+  Active high.  
+  Configured as GPIO output, push-pull.  
+  Must be driven high before UART communication with the E5.
+
+---
+
+### WIO E5 Control Pins
+- **E5_BOOT**  
+  Boot configuration pin for the WIO E5 internal MCU.  
+  Must be left floating or pulled low during reset to enter the E5 bootloader.  
+  Not required for normal operation in this project.
+
+- **E5_RST**  
+  Reset pin (NRST) of the WIO E5 internal MCU.  
+  Driven high so the E5 boots alongside the primary MCU and is immediately ready to accept AT commands.
+
+---
+
+### Audio Control
+- **SD_MODE**  
+  Shutdown/mode pin of the MAX98357A audio DAC.  
+  - Low: shutdown mode  
+  - High: left-channel stereo input mode  
+  Configured as GPIO output.  
+  Held low at boot for power savings; driven high only during audio playback.
+
+---
+
+### Sensor Interrupts
+- **TMAG5273_INT**  
+  Interrupt output from the TMAG5273 magnetometer (joystick).  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **ADP5360_INT**  
+  Interrupt output from the ADP5360 PMIC / fuel gauge.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **LIS2DUX_INT1**  
+  Interrupt pin 1 from the LIS2DUX accelerometer.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+- **LIS2DUX_INT2**  
+  Interrupt pin 2 from the LIS2DUX accelerometer.  
+  Configured as GPIO input with EXTI interrupt on rising and falling edges.
+
+
 ## Power Domains & Architecture (Critical)
 
 | Domain     | RUN | STOP2 | Contents |
