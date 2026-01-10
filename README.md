@@ -652,9 +652,9 @@ This order is designed to minimize complexity and isolate fault domains.
 ## Phase 0 — RTOS Bring-up (no DMA, no STOP2)
 Goal: tasks run, queues work, heap stable.
 
-- [ ] Confirm FreeRTOS heap scheme is Heap_4 and TOTAL_HEAP_SIZE is 64 KB
-- [ ] Confirm stack overflow check and malloc failed hook are enabled
-- [ ] Create tasks and ensure each blocks correctly (no polling loops)
+- [x] Confirm FreeRTOS heap scheme is Heap_4 and TOTAL_HEAP_SIZE is 64 KB
+- [x] Confirm stack overflow check and malloc failed hook are enabled
+- [x] Create tasks and ensure each blocks correctly (no polling loops)
 - [ ] Confirm qSysEvents path to tskPower exists (tskPower can be a stub initially)
 - [x] Confirm button EXTI events can reach tskInput then tskUI (UI mode only)
 
