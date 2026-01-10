@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ADP5360.h"
 #include "app_freertos.h"
 #include "debug_uart.h"
 #include "rtos_isr_bridge.h"
@@ -139,6 +140,13 @@ int main(void)
   MX_ICACHE_Init();
   /* USER CODE BEGIN 2 */
 
+  // Initalise the PMIC
+  ADP5360_init();
+
+  // Enable the VLT to the display
+  HAL_GPIO_WritePin(VLT_LCD_GPIO_Port, VLT_LCD_Pin, GPIO_PIN_RESET);
+
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */

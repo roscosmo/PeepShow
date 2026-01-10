@@ -48,9 +48,10 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    Core/Src/ADP5360.c
     Core/Src/debug_uart.c
     Core/Src/rtos_isr_bridge.c
-    Core/Src/Sharp_MIP.c
+    Core/Src/LS013B7DH05.c
     Core/Src/font8x8_basic.c
 )
 

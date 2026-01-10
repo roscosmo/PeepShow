@@ -4,17 +4,11 @@ Hello agent! Here's some instructions for you to follow so we can develop this p
 
 # ABSOLUTE RULE: CLI / SHELL USAGE (READ CAREFULLY)
 
-Minimize command-line (CLI) calls at all costs.
-
-- Do NOT run shell/CLI commands unless they are strictly unavoidable.
-- Prefer reasoning, inspection, and proposing changes over executing commands.
-- Assume CLI access is expensive, slow, and disruptive to the developer workflow.
-- Don't run exploratory, curiosity-driven, or “just to check” commands. 
-- The user can 
+Minimize command-line (CLI) where you can. Assume they are expensive and slow.
+DO NOT make assumptions based off a lack of knowledge however.
+Accuracy is foremost.
 
 
-
-Violating this rule is considered a failure to follow project instructions.
 
 # TOP PRIORITY: NO-CODE-FIRST GATE (HARD REQUIREMENT)
 
@@ -26,7 +20,7 @@ C) CODE (only after approval)
 
 ## HARD PROHIBITION
 Do NOT output any code blocks, diffs, patches, or file contents until you have produced
-the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or "APPROVED".
+the "SUMMARY FOR APPROVAL" section AND the user gives you the go ahead.
 
 ## EXAMPLE FORMAT, MODIFY TO SUIT SITUATION
 
@@ -42,7 +36,7 @@ the "SUMMARY FOR APPROVAL" section AND the user explicitly replies with "GO" or 
 - Why this approach:
 - How we’ll verify:
 
-END SUMMARY — WAITING FOR APPROVAL
+END SUMMARY — (WAIT FOR APPROVAL)
 
 ---
 

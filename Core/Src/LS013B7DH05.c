@@ -1,4 +1,4 @@
-#include "Sharp_MIP.h"
+#include "LS013B7DH05.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -53,11 +53,11 @@ static uint8_t txBuf[TXBUF_MAX] SRAM4_BUF_ATTR;
 
 uint8_t *DispBuf = NULL;
 
-static inline void SCS_High(Sharp_MIP *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_SET); }
-static inline void SCS_Low (Sharp_MIP *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_RESET); }
+static inline void SCS_High(LS013B7DH05 *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_SET); }
+static inline void SCS_Low (LS013B7DH05 *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_RESET); }
 
 /* --------------------------- Blocking chunked TX --------------------------- */
-static HAL_StatusTypeDef spi_tx_chunked(Sharp_MIP *d, const uint8_t *buf, uint32_t len)
+static HAL_StatusTypeDef spi_tx_chunked(LS013B7DH05 *d, const uint8_t *buf, uint32_t len)
 {
     while (len > 0u) {
         uint16_t chunk = (len > SPI_TX_CHUNK_MAX) ? (uint16_t)SPI_TX_CHUNK_MAX : (uint16_t)len;
@@ -103,7 +103,7 @@ static HAL_StatusTypeDef BuildWriteBurst(const uint16_t *rows, uint16_t rowCount
 }
 
 /* --------------------------- Public: init/clean ---------------------------- */
-HAL_StatusTypeDef LCD_Init(Sharp_MIP *MemDisp,
+HAL_StatusTypeDef LCD_Init(LS013B7DH05 *MemDisp,
                            SPI_HandleTypeDef *Bus,
                            GPIO_TypeDef *dispGPIO,
                            uint16_t LCDcs)
@@ -125,7 +125,7 @@ HAL_StatusTypeDef LCD_Init(Sharp_MIP *MemDisp,
     return LCD_Clean(MemDisp);
 }
 
-HAL_StatusTypeDef LCD_Clean(Sharp_MIP *MemDisp)
+HAL_StatusTypeDef LCD_Clean(LS013B7DH05 *MemDisp)
 {
     if (!MemDisp || !DispBuf) return HAL_ERROR;
 
@@ -142,7 +142,7 @@ HAL_StatusTypeDef LCD_Clean(Sharp_MIP *MemDisp)
 }
 
 /* --------------------------- Public: blocking flush ------------------------ */
-HAL_StatusTypeDef LCD_FlushAll(Sharp_MIP *MemDisp)
+HAL_StatusTypeDef LCD_FlushAll(LS013B7DH05 *MemDisp)
 {
     if (!MemDisp || !DispBuf) return HAL_ERROR;
 
@@ -160,7 +160,7 @@ HAL_StatusTypeDef LCD_FlushAll(Sharp_MIP *MemDisp)
     return st;
 }
 
-HAL_StatusTypeDef LCD_FlushRows(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount)
+HAL_StatusTypeDef LCD_FlushRows(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount)
 {
     if (!MemDisp || !DispBuf) return HAL_ERROR;
 
@@ -177,7 +177,7 @@ HAL_StatusTypeDef LCD_FlushRows(Sharp_MIP *MemDisp, const uint16_t *rows, uint16
 
 /* --------------------------- DMA chunk chaining ---------------------------- */
 typedef struct {
-    Sharp_MIP     *dev;
+    LS013B7DH05     *dev;
     const uint8_t *p;
     uint32_t       remaining;
     HAL_StatusTypeDef last;
@@ -198,7 +198,7 @@ static HAL_StatusTypeDef lcd_dma_kick_next(void)
     return HAL_SPI_Transmit_DMA(g_chain.dev->Bus, (uint8_t*)g_chain.p, n);
 }
 
-static HAL_StatusTypeDef lcd_dma_start(Sharp_MIP *dev, const uint8_t *buf, uint32_t len)
+static HAL_StatusTypeDef lcd_dma_start(LS013B7DH05 *dev, const uint8_t *buf, uint32_t len)
 {
     if (!dev || !buf || len == 0u) return HAL_ERROR;
     if (!g_dma_done) return HAL_BUSY;
@@ -259,7 +259,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     g_dma_done = true;
 }
 
-HAL_StatusTypeDef LCD_FlushAll_DMA(Sharp_MIP *MemDisp)
+HAL_StatusTypeDef LCD_FlushAll_DMA(LS013B7DH05 *MemDisp)
 {
     if (!MemDisp || !DispBuf) return HAL_ERROR;
 
@@ -273,7 +273,7 @@ HAL_StatusTypeDef LCD_FlushAll_DMA(Sharp_MIP *MemDisp)
     return lcd_dma_start(MemDisp, txBuf, len);
 }
 
-HAL_StatusTypeDef LCD_FlushRows_DMA(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount)
+HAL_StatusTypeDef LCD_FlushRows_DMA(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount)
 {
     if (!MemDisp || !DispBuf) return HAL_ERROR;
 

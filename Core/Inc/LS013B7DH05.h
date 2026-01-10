@@ -1,5 +1,5 @@
-#ifndef SHARP_MIP_H
-#define SHARP_MIP_H
+#ifndef LS013B7DH05_H
+#define LS013B7DH05_H
 
 #pragma once
 #include "stm32u5xx_hal.h"
@@ -21,23 +21,23 @@ typedef struct {
     SPI_HandleTypeDef *Bus;
     GPIO_TypeDef      *dispGPIO;
     uint16_t           LCDcs;     /* SCS pin (ACTIVE HIGH) */
-} Sharp_MIP;
+} LS013B7DH05;
 
 /* Init / clear */
-HAL_StatusTypeDef LCD_Init(Sharp_MIP *MemDisp,
+HAL_StatusTypeDef LCD_Init(LS013B7DH05 *MemDisp,
                            SPI_HandleTypeDef *Bus,
                            GPIO_TypeDef *dispGPIO,
                            uint16_t LCDcs);
 
-HAL_StatusTypeDef LCD_Clean(Sharp_MIP *MemDisp);
+HAL_StatusTypeDef LCD_Clean(LS013B7DH05 *MemDisp);
 
 /* Blocking flush */
-HAL_StatusTypeDef LCD_FlushAll(Sharp_MIP *MemDisp);
-HAL_StatusTypeDef LCD_FlushRows(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount);
+HAL_StatusTypeDef LCD_FlushAll(LS013B7DH05 *MemDisp);
+HAL_StatusTypeDef LCD_FlushRows(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount);
 
 /* DMA chunked flush (LPDMA) */
-HAL_StatusTypeDef LCD_FlushAll_DMA(Sharp_MIP *MemDisp);
-HAL_StatusTypeDef LCD_FlushRows_DMA(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount);
+HAL_StatusTypeDef LCD_FlushAll_DMA(LS013B7DH05 *MemDisp);
+HAL_StatusTypeDef LCD_FlushRows_DMA(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount);
 
 bool              LCD_FlushDMA_IsDone(void);
 HAL_StatusTypeDef LCD_FlushDMA_WaitWFI(uint32_t timeout_ms);

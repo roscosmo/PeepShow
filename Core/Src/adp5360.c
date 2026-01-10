@@ -1,4 +1,4 @@
-#include "adp5360.h"
+#include "ADP5360.h"
 
 static inline HAL_StatusTypeDef _mem_read(uint8_t reg, uint8_t *buf, uint16_t n) {
     return HAL_I2C_Mem_Read(&hi2c3, ADP5360_I2C_ADDR_W,
@@ -12,38 +12,38 @@ static inline HAL_StatusTypeDef _mem_write(uint8_t reg, const uint8_t *buf, uint
                              (uint8_t*)buf, n, ADP5360_I2C_TIMEOUT_MS);
 }
 
-HAL_StatusTypeDef adp5360_read(uint8_t reg, uint8_t *buf, uint16_t n) {
+HAL_StatusTypeDef ADP5360_read(uint8_t reg, uint8_t *buf, uint16_t n) {
     if (!buf || !n) return HAL_ERROR;
     return _mem_read(reg, buf, n);
 }
 
-HAL_StatusTypeDef adp5360_write(uint8_t reg, const uint8_t *buf, uint16_t n) {
+HAL_StatusTypeDef ADP5360_write(uint8_t reg, const uint8_t *buf, uint16_t n) {
     if (!buf || !n) return HAL_ERROR;
     return _mem_write(reg, buf, n);
 }
 
-HAL_StatusTypeDef adp5360_init(void) {
+HAL_StatusTypeDef ADP5360_init(void) {
     // 1) Ping device
     HAL_StatusTypeDef st = HAL_I2C_IsDeviceReady(&hi2c3, ADP5360_I2C_ADDR_W, 2, ADP5360_I2C_TIMEOUT_MS);
     if (st != HAL_OK) return st;
 
     // 2) Lightweight sanity: read IDs (0x00, 0x01). No writes/config here.
     uint8_t id = 0, rev = 0;
-    st = adp5360_read_u8(ADP5360_REG_MANUF_MODEL_ID, &id);
+    st = ADP5360_read_u8(ADP5360_REG_MANUF_MODEL_ID, &id);
     if (st != HAL_OK) return st;
 
-    st = adp5360_read_u8(ADP5360_REG_SILICON_REV, &rev);
+    st = ADP5360_read_u8(ADP5360_REG_SILICON_REV, &rev);
 
-    adp5360_power_init(&adp_cfg); // Initialize ADP5360 with configuration from main.c
+    ADP5360_power_init(&ADP_cfg); // Initialize ADP5360 with configuration from main.c
 
     return st; // OK if both reads succeeded
 }
 
-HAL_StatusTypeDef adp5360_get_id(adp5360_id_t *out)
+HAL_StatusTypeDef ADP5360_get_id(ADP5360_id_t *out)
 {
     if (!out) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_MANUF_MODEL_ID, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_MANUF_MODEL_ID, &v);
     if (st != HAL_OK) return st;
 
     out->manuf = (uint8_t)((v & ADP5360_ID_MANUF_MASK) >> ADP5360_ID_MANUF_SHIFT);
@@ -51,11 +51,11 @@ HAL_StatusTypeDef adp5360_get_id(adp5360_id_t *out)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_get_revision(uint8_t *rev4)
+HAL_StatusTypeDef ADP5360_get_revision(uint8_t *rev4)
 {
     if (!rev4) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_SILICON_REV, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_SILICON_REV, &v);
     if (st != HAL_OK) return st;
 
     *rev4 = (uint8_t)(v & ADP5360_REV_MASK);  // 4-bit value
@@ -123,12 +123,12 @@ static uint16_t _decode_ilim_ma(uint8_t code)
     }
 }
 
-HAL_StatusTypeDef adp5360_get_vbus_ilim(uint16_t *vadpichg_mV,
-                                        adp5360_vsys_t *vsys_mode,
+HAL_StatusTypeDef ADP5360_get_vbus_ilim(uint16_t *vadpichg_mV,
+                                        ADP5360_vsys_t *vsys_mode,
                                         uint16_t *ilim_mA)
 {
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_VBUS_ILIM, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_VBUS_ILIM, &v);
     if (st != HAL_OK) return st;
 
     if (vadpichg_mV) {
@@ -141,8 +141,8 @@ HAL_StatusTypeDef adp5360_get_vbus_ilim(uint16_t *vadpichg_mV,
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_vbus_ilim(uint16_t vadpichg_mV,
-                                        adp5360_vsys_t vsys_mode,
+HAL_StatusTypeDef ADP5360_set_vbus_ilim(uint16_t vadpichg_mV,
+                                        ADP5360_vsys_t vsys_mode,
                                         uint16_t ilim_mA)
 {
     uint8_t ok_v = 0, ok_i = 0;
@@ -151,7 +151,7 @@ HAL_StatusTypeDef adp5360_set_vbus_ilim(uint16_t vadpichg_mV,
     if (!ok_v || !ok_i) return HAL_ERROR;
 
     uint8_t v;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_VBUS_ILIM, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_VBUS_ILIM, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_VADPICHG_MASK | ADP5360_VSYSTEM_MASK | ADP5360_ILIM_MASK);
@@ -159,7 +159,7 @@ HAL_StatusTypeDef adp5360_set_vbus_ilim(uint16_t vadpichg_mV,
     if (vsys_mode == ADP5360_VSYS_5V) v |= ADP5360_VSYSTEM_MASK;
     v |= (uint8_t)(i_code & ADP5360_ILIM_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_VBUS_ILIM, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_VBUS_ILIM, v);
 }
 
 
@@ -199,11 +199,11 @@ static inline uint16_t _decode_itrk_dma(uint8_t code2) {
     }
 }
 
-HAL_StatusTypeDef adp5360_get_chg_term(uint16_t *vtrm_mV,
+HAL_StatusTypeDef ADP5360_get_chg_term(uint16_t *vtrm_mV,
                                        uint16_t *itrk_deci_mA)
 {
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (vtrm_mV) {
@@ -216,11 +216,11 @@ HAL_StatusTypeDef adp5360_get_chg_term(uint16_t *vtrm_mV,
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_chg_term(uint16_t vtrm_mV,
+HAL_StatusTypeDef ADP5360_set_chg_term(uint16_t vtrm_mV,
                                        uint16_t itrk_deci_mA)
 {
     uint8_t regv;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, &regv);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, &regv);
     if (st != HAL_OK) return st;
 
     uint8_t vtrm_code = _encode_vtrm_code_from_mv(vtrm_mV);
@@ -230,7 +230,7 @@ HAL_StatusTypeDef adp5360_set_chg_term(uint16_t vtrm_mV,
     regv |= (uint8_t)(vtrm_code << ADP5360_VTRM_SHIFT);
     regv |= (uint8_t)(itrk_code & ADP5360_ITRK_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, regv);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_TERMINATION_SETTING, regv);
 }
 
 
@@ -272,11 +272,11 @@ static uint8_t _encode_ichg_code(uint16_t ma) {
     return (uint8_t)((ma - 10)/10);
 }
 
-HAL_StatusTypeDef adp5360_get_chg_current(uint16_t *iend_mA,
+HAL_StatusTypeDef ADP5360_get_chg_current(uint16_t *iend_mA,
                                           uint16_t *ichg_mA)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (iend_mA) *iend_mA = _decode_iend_ma((v & ADP5360_IEND_MASK)>>ADP5360_IEND_SHIFT);
@@ -285,11 +285,11 @@ HAL_StatusTypeDef adp5360_get_chg_current(uint16_t *iend_mA,
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_chg_current(uint16_t iend_mA,
+HAL_StatusTypeDef ADP5360_set_chg_current(uint16_t iend_mA,
                                           uint16_t ichg_mA)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t iend_code = _encode_iend_code(iend_mA);
@@ -299,7 +299,7 @@ HAL_StatusTypeDef adp5360_set_chg_current(uint16_t iend_mA,
     v |= (uint8_t)(iend_code << ADP5360_IEND_SHIFT);
     v |= (ichg_code & ADP5360_ICHG_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, v);
 }
 
 // use deci-mA for IEND exactness
@@ -334,21 +334,21 @@ static uint8_t _encode_ichg_code_dmA(uint16_t dmA) {
     if (ma < 10) ma = 10; if (ma > 320) ma = 320;
     return (uint8_t)((ma - 10)/10);
 }
-HAL_StatusTypeDef adp5360_get_chg_current_dmA(uint16_t *iend_dmA,
+HAL_StatusTypeDef ADP5360_get_chg_current_dmA(uint16_t *iend_dmA,
                                               uint16_t *ichg_dmA)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
     if (st != HAL_OK) return st;
     if (iend_dmA) *iend_dmA = _decode_iend_dmA((v & ADP5360_IEND_MASK)>>ADP5360_IEND_SHIFT);
     if (ichg_dmA) *ichg_dmA = _decode_ichg_dmA(v & ADP5360_ICHG_MASK);
     return HAL_OK;
 }
-HAL_StatusTypeDef adp5360_set_chg_current_dmA(uint16_t iend_dmA,
+HAL_StatusTypeDef ADP5360_set_chg_current_dmA(uint16_t iend_dmA,
                                               uint16_t ichg_dmA)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t iend_code = _encode_iend_code_dmA(iend_dmA);
@@ -358,7 +358,7 @@ HAL_StatusTypeDef adp5360_set_chg_current_dmA(uint16_t iend_dmA,
     v |= (uint8_t)(iend_code << ADP5360_IEND_SHIFT);
     v |= (ichg_code & ADP5360_ICHG_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_CURRENT_SETTING, v);
 }
 
 // ---- encode/decode helpers (0x05) ----
@@ -406,14 +406,14 @@ static uint16_t _vweak_mv_from_code(uint8_t code3) {
     return (uint16_t)(2700 + 100*code3);
 }
 
-HAL_StatusTypeDef adp5360_get_voltage_thresholds(
+HAL_StatusTypeDef ADP5360_get_voltage_thresholds(
     uint8_t  *recharge_disabled,
     uint16_t *vrch_mV,
     uint16_t *vtrk_dead_mV,
     uint16_t *vweak_mV)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, &v);
     if (st != HAL_OK) return st;
 
     if (recharge_disabled) *recharge_disabled = (v & ADP5360_DIS_RCH_MASK) ? 1u : 0u;
@@ -432,7 +432,7 @@ HAL_StatusTypeDef adp5360_get_voltage_thresholds(
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_voltage_thresholds(
+HAL_StatusTypeDef ADP5360_set_voltage_thresholds(
     uint8_t  recharge_disabled,
     uint16_t vrch_mV,
     uint16_t vtrk_dead_mV,
@@ -444,7 +444,7 @@ HAL_StatusTypeDef adp5360_set_voltage_thresholds(
     if (vrch_code < 0 || vtrk_code < 0 || vweak_code < 0) return HAL_ERROR;
 
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_DIS_RCH_MASK | ADP5360_VRCH_MASK | ADP5360_VTRK_MASK | ADP5360_VWEAK_MASK);
@@ -453,7 +453,7 @@ HAL_StatusTypeDef adp5360_set_voltage_thresholds(
     v |= (uint8_t)( (vtrk_code & 0x03) << ADP5360_VTRK_SHIFT );
     v |= (uint8_t)( vweak_code & 0x07 );
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_VOLTAGE_THRESHOLD, v);
 }
 
 
@@ -468,32 +468,32 @@ static void _tmr_minutes_from_code(uint8_t code, uint16_t *tmx, uint16_t *tcc)
     }
 }
 
-HAL_StatusTypeDef adp5360_get_chg_timers(
+HAL_StatusTypeDef ADP5360_get_chg_timers(
     uint8_t *en_tend,
     uint8_t *en_chg_timer,
-    adp5360_tmr_period_t *period,
+    ADP5360_tmr_period_t *period,
     uint16_t *tmx_min,
     uint16_t *tcc_min)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_TIMER_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_TIMER_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (en_tend)       *en_tend       = (v & ADP5360_EN_TEND_MASK) ? 1u : 0u;
     if (en_chg_timer)  *en_chg_timer  = (v & ADP5360_EN_CHG_TIMER_MASK) ? 1u : 0u;
     uint8_t code = (uint8_t)(v & ADP5360_CHG_TMR_MASK);
-    if (period)        *period        = (adp5360_tmr_period_t)code;
+    if (period)        *period        = (ADP5360_tmr_period_t)code;
     _tmr_minutes_from_code(code, tmx_min, tcc_min);
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_chg_timers(
+HAL_StatusTypeDef ADP5360_set_chg_timers(
     uint8_t en_tend,
     uint8_t en_chg_timer,
-    adp5360_tmr_period_t period)
+    ADP5360_tmr_period_t period)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_TIMER_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_TIMER_SETTING, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_EN_TEND_MASK | ADP5360_EN_CHG_TIMER_MASK | ADP5360_CHG_TMR_MASK);
@@ -501,15 +501,15 @@ HAL_StatusTypeDef adp5360_set_chg_timers(
     if (en_chg_timer) v |= ADP5360_EN_CHG_TIMER_MASK;
     v |= (uint8_t)period & ADP5360_CHG_TMR_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_TIMER_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_TIMER_SETTING, v);
 }
 
 
-HAL_StatusTypeDef adp5360_get_chg_function(adp5360_func_t *f)
+HAL_StatusTypeDef ADP5360_get_chg_function(ADP5360_func_t *f)
 {
     if (!f) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, &v);
     if (st != HAL_OK) return st;
 
     f->en_jeita        = (v & ADP5360_EN_JEITA_MASK)        ? 1u : 0u;
@@ -522,11 +522,11 @@ HAL_StatusTypeDef adp5360_get_chg_function(adp5360_func_t *f)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_chg_function(const adp5360_func_t *f)
+HAL_StatusTypeDef ADP5360_set_chg_function(const ADP5360_func_t *f)
 {
     if (!f) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, &v);
     if (st != HAL_OK) return st;
 
     // clear writable bits (skip reserved bit5)
@@ -542,11 +542,11 @@ HAL_StatusTypeDef adp5360_set_chg_function(const adp5360_func_t *f)
     if (f->en_adpichg)      v |= ADP5360_EN_ADPICHG_MASK;
     if (f->en_chg)          v |= ADP5360_EN_CHG_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_CHARGER_FUNCTION_SETTING, v);
 }
 
 
-const char* adp5360_chg_state_str(adp5360_chg_state_t st)
+const char* ADP5360_chg_state_str(ADP5360_chg_state_t st)
 {
     switch (st) {
         case ADP5360_CHG_OFF:            return "off";
@@ -561,24 +561,24 @@ const char* adp5360_chg_state_str(adp5360_chg_state_t st)
     }
 }
 
-HAL_StatusTypeDef adp5360_get_status1(adp5360_status1_t *s)
+HAL_StatusTypeDef ADP5360_get_status1(ADP5360_status1_t *s)
 {
     if (!s) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_STATUS1, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_STATUS1, &v);
     if (st != HAL_OK) return st;
 
     s->vbus_ov        = (v & ADP5360_ST1_VBUS_OV_MASK)   ? 1u : 0u;
     s->adpichg_active = (v & ADP5360_ST1_ADPICHG_MASK)   ? 1u : 0u;
     s->vbus_ilim      = (v & ADP5360_ST1_VBUS_ILIM_MASK) ? 1u : 0u;
-    s->state          = (adp5360_chg_state_t)(v & ADP5360_ST1_STATE_MASK);
+    s->state          = (ADP5360_chg_state_t)(v & ADP5360_ST1_STATE_MASK);
     return HAL_OK;
 }
 
-bool adp5360_is_charging(void)
+bool ADP5360_is_charging(void)
 {
-    adp5360_status1_t st;
-    if (adp5360_get_status1(&st) != HAL_OK)
+    ADP5360_status1_t st;
+    if (ADP5360_get_status1(&st) != HAL_OK)
         return false; // treat errors as "not charging"
 
     switch (st.state) {
@@ -594,7 +594,7 @@ bool adp5360_is_charging(void)
 
 
 
-const char* adp5360_thr_status_str(adp5360_thr_status_t t)
+const char* ADP5360_thr_status_str(ADP5360_thr_status_t t)
 {
     switch (t) {
         case ADP5360_THR_OFF:  return "off";
@@ -607,7 +607,7 @@ const char* adp5360_thr_status_str(adp5360_thr_status_t t)
     }
 }
 
-const char* adp5360_bat_status_str(adp5360_bat_chg_status_t b)
+const char* ADP5360_bat_status_str(ADP5360_bat_chg_status_t b)
 {
     switch (b) {
         case ADP5360_BATSTAT_NORMAL:   return "normal";
@@ -619,22 +619,22 @@ const char* adp5360_bat_status_str(adp5360_bat_chg_status_t b)
     }
 }
 
-HAL_StatusTypeDef adp5360_get_status2(adp5360_status2_t *s)
+HAL_StatusTypeDef ADP5360_get_status2(ADP5360_status2_t *s)
 {
     if (!s) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_CHARGER_STATUS2, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_CHARGER_STATUS2, &v);
     if (st != HAL_OK) return st;
 
-    s->thr        = (adp5360_thr_status_t)((v & ADP5360_ST2_THR_MASK) >> 5);
+    s->thr        = (ADP5360_thr_status_t)((v & ADP5360_ST2_THR_MASK) >> 5);
     s->bat_ov     = (v & ADP5360_ST2_BAT_OV_MASK) ? 1u : 0u;
     s->bat_uv     = (v & ADP5360_ST2_BAT_UV_MASK) ? 1u : 0u;
-    s->bat_status = (adp5360_bat_chg_status_t)(v & ADP5360_ST2_BAT_CHG_MASK);
+    s->bat_status = (ADP5360_bat_chg_status_t)(v & ADP5360_ST2_BAT_CHG_MASK);
     return HAL_OK;
 }
 
 
-static adp5360_ithr_t _ithr_from_code(uint8_t code2)
+static ADP5360_ithr_t _ithr_from_code(uint8_t code2)
 {
     switch (code2 & 0x03u) {
         case 0: return ADP5360_ITHR_60UA;
@@ -642,7 +642,7 @@ static adp5360_ithr_t _ithr_from_code(uint8_t code2)
         default: return ADP5360_ITHR_6UA; // 10 or 11
     }
 }
-static uint8_t _ithr_to_code(adp5360_ithr_t ithr)
+static uint8_t _ithr_to_code(ADP5360_ithr_t ithr)
 {
     switch (ithr) {
         case ADP5360_ITHR_60UA: return 0b00;
@@ -652,57 +652,57 @@ static uint8_t _ithr_to_code(adp5360_ithr_t ithr)
     }
 }
 
-HAL_StatusTypeDef adp5360_get_ntc_ctrl(adp5360_ithr_t *ithr, uint8_t *en_thr)
+HAL_StatusTypeDef ADP5360_get_ntc_ctrl(ADP5360_ithr_t *ithr, uint8_t *en_thr)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, &v);
     if (st != HAL_OK) return st;
     if (ithr)   *ithr   = _ithr_from_code((v & ADP5360_ITHR_MASK) >> ADP5360_ITHR_SHIFT);
     if (en_thr) *en_thr = (v & ADP5360_EN_THR_MASK) ? 1u : 0u;
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_ntc_ctrl(adp5360_ithr_t ithr, uint8_t en_thr)
+HAL_StatusTypeDef ADP5360_set_ntc_ctrl(ADP5360_ithr_t ithr, uint8_t en_thr)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_ITHR_MASK | ADP5360_EN_THR_MASK);
     v |= (uint8_t)(_ithr_to_code(ithr) << ADP5360_ITHR_SHIFT);
     if (en_thr) v |= ADP5360_EN_THR_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, v);
+    return ADP5360_write_u8(ADP5360_REG_BATTERY_THERMISTOR_CONTROL, v);
 }
 
 
 static inline uint8_t clamp_u8(uint32_t x) { return (x > 255u) ? 255u : (uint8_t)x; }
 
-HAL_StatusTypeDef adp5360_get_ntc_thresholds(
+HAL_StatusTypeDef ADP5360_get_ntc_thresholds(
     uint16_t *v60c_mV, uint16_t *v45c_mV, uint16_t *v10c_mV, uint16_t *v0c_mV)
 {
     uint8_t b;
 
     if (v60c_mV) {
-        if (adp5360_read_u8(ADP5360_REG_THERMISTOR_60C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
+        if (ADP5360_read_u8(ADP5360_REG_THERMISTOR_60C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
         *v60c_mV = (uint16_t)b * 2u;
     }
     if (v45c_mV) {
-        if (adp5360_read_u8(ADP5360_REG_THERMISTOR_45C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
+        if (ADP5360_read_u8(ADP5360_REG_THERMISTOR_45C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
         *v45c_mV = (uint16_t)b * 2u;
     }
     if (v10c_mV) {
-        if (adp5360_read_u8(ADP5360_REG_THERMISTOR_10C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
+        if (ADP5360_read_u8(ADP5360_REG_THERMISTOR_10C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
         *v10c_mV = (uint16_t)b * 10u;
     }
     if (v0c_mV) {
-        if (adp5360_read_u8(ADP5360_REG_THERMISTOR_0C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
+        if (ADP5360_read_u8(ADP5360_REG_THERMISTOR_0C_THRESHOLD, &b) != HAL_OK) return HAL_ERROR;
         *v0c_mV = (uint16_t)b * 10u;
     }
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_ntc_thresholds(
+HAL_StatusTypeDef ADP5360_set_ntc_thresholds(
     uint16_t v60c_mV, uint16_t v45c_mV, uint16_t v10c_mV, uint16_t v0c_mV)
 {
     // Round to nearest LSB and clamp to 0..255 codes.
@@ -711,24 +711,24 @@ HAL_StatusTypeDef adp5360_set_ntc_thresholds(
     uint8_t c10 = clamp_u8((v10c_mV + 5u) / 10u);   // 10 mV LSB
     uint8_t c0  = clamp_u8((v0c_mV  + 5u) / 10u);
 
-    if (adp5360_write_u8(ADP5360_REG_THERMISTOR_60C_THRESHOLD, c60) != HAL_OK) return HAL_ERROR;
-    if (adp5360_write_u8(ADP5360_REG_THERMISTOR_45C_THRESHOLD, c45) != HAL_OK) return HAL_ERROR;
-    if (adp5360_write_u8(ADP5360_REG_THERMISTOR_10C_THRESHOLD, c10) != HAL_OK) return HAL_ERROR;
-    if (adp5360_write_u8(ADP5360_REG_THERMISTOR_0C_THRESHOLD,  c0)  != HAL_OK) return HAL_ERROR;
+    if (ADP5360_write_u8(ADP5360_REG_THERMISTOR_60C_THRESHOLD, c60) != HAL_OK) return HAL_ERROR;
+    if (ADP5360_write_u8(ADP5360_REG_THERMISTOR_45C_THRESHOLD, c45) != HAL_OK) return HAL_ERROR;
+    if (ADP5360_write_u8(ADP5360_REG_THERMISTOR_10C_THRESHOLD, c10) != HAL_OK) return HAL_ERROR;
+    if (ADP5360_write_u8(ADP5360_REG_THERMISTOR_0C_THRESHOLD,  c0)  != HAL_OK) return HAL_ERROR;
 
     return HAL_OK;
 }
 
 
-HAL_StatusTypeDef adp5360_get_thr_voltage(uint16_t *thr_mV, uint16_t *raw12)
+HAL_StatusTypeDef ADP5360_get_thr_voltage(uint16_t *thr_mV, uint16_t *raw12)
 {
     uint8_t lo = 0, hi = 0;
     HAL_StatusTypeDef st;
 
-    st = adp5360_read_u8(ADP5360_REG_THR_VOLTAGE_LOW, &lo);
+    st = ADP5360_read_u8(ADP5360_REG_THR_VOLTAGE_LOW, &lo);
     if (st != HAL_OK) return st;
 
-    st = adp5360_read_u8(ADP5360_REG_THR_VOLTAGE_HIGH, &hi);
+    st = ADP5360_read_u8(ADP5360_REG_THR_VOLTAGE_HIGH, &hi);
     if (st != HAL_OK) return st;
 
     uint16_t r = (uint16_t)(((uint16_t)(hi & 0x0Fu) << 8) | lo); // 12-bit
@@ -739,11 +739,11 @@ HAL_StatusTypeDef adp5360_get_thr_voltage(uint16_t *thr_mV, uint16_t *raw12)
 }
 
 
-HAL_StatusTypeDef adp5360_get_batpro_ctrl(adp5360_batpro_ctrl_t *cfg)
+HAL_StatusTypeDef ADP5360_get_batpro_ctrl(ADP5360_batpro_ctrl_t *cfg)
 {
     if (!cfg) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_CONTROL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_CONTROL, &v);
     if (st != HAL_OK) return st;
 
     cfg->en_batpro     = (v & ADP5360_EN_BATPRO_MASK)     ? 1u : 0u;
@@ -754,12 +754,12 @@ HAL_StatusTypeDef adp5360_get_batpro_ctrl(adp5360_batpro_ctrl_t *cfg)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_batpro_ctrl(const adp5360_batpro_ctrl_t *cfg)
+HAL_StatusTypeDef ADP5360_set_batpro_ctrl(const ADP5360_batpro_ctrl_t *cfg)
 {
     if (!cfg) return HAL_ERROR;
 
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_CONTROL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_CONTROL, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_EN_BATPRO_MASK | ADP5360_EN_CHGLB_MASK |
@@ -772,7 +772,7 @@ HAL_StatusTypeDef adp5360_set_batpro_ctrl(const adp5360_batpro_ctrl_t *cfg)
     if (cfg->oc_dis_hiccup) v |= ADP5360_OC_DIS_HICCUP_MASK;
     if (cfg->isofet_ovchg)  v |= ADP5360_ISOFET_OVCHG_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_BATPRO_CONTROL, v);
+    return ADP5360_write_u8(ADP5360_REG_BATPRO_CONTROL, v);
 }
 
 
@@ -819,12 +819,12 @@ static inline uint16_t _dgt_ms_from_code(uint8_t code2) {
     switch (code2 & 0x03u) { case 0: return 30; case 1: return 60; case 2: return 120; default: return 240; }
 }
 
-HAL_StatusTypeDef adp5360_get_uv_setting(uint16_t *uv_mV,
+HAL_StatusTypeDef ADP5360_get_uv_setting(uint16_t *uv_mV,
                                          uint8_t  *hys_pct,
                                          uint16_t *dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_UV_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_UV_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (uv_mV)   *uv_mV   = _uv_mv_from_code( (v & ADP5360_UV_DISCH_MASK) >> ADP5360_UV_DISCH_SHIFT );
@@ -833,12 +833,12 @@ HAL_StatusTypeDef adp5360_get_uv_setting(uint16_t *uv_mV,
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_uv_setting(uint16_t uv_mV,
+HAL_StatusTypeDef ADP5360_set_uv_setting(uint16_t uv_mV,
                                          uint8_t  hys_pct,
                                          uint16_t dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_UV_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_UV_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t uv_code  = _uv_code_from_mv(uv_mV);
@@ -850,7 +850,7 @@ HAL_StatusTypeDef adp5360_set_uv_setting(uint16_t uv_mV,
     v |= (uint8_t)(hys_code << ADP5360_HYS_UV_DISCH_SHIFT);
     v |= (uint8_t)(dgt_code & ADP5360_DGT_UV_DISCH_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_BATPRO_UV_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_BATPRO_UV_SETTING, v);
 }
 
 
@@ -895,10 +895,10 @@ static uint16_t _dgt_dis_ms_from_code(uint8_t code3) {
     }
 }
 
-HAL_StatusTypeDef adp5360_get_dis_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
+HAL_StatusTypeDef ADP5360_get_dis_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (oc_mA)  *oc_mA  = _ocdisch_ma_from_code( (v & ADP5360_OC_DISCH_MASK) >> ADP5360_OC_DISCH_SHIFT );
@@ -906,10 +906,10 @@ HAL_StatusTypeDef adp5360_get_dis_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_dis_oc(uint16_t oc_mA, float dgt_ms)
+HAL_StatusTypeDef ADP5360_set_dis_oc(uint16_t oc_mA, float dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t oc_code  = _ocdisch_code_from_ma(oc_mA);
@@ -919,7 +919,7 @@ HAL_StatusTypeDef adp5360_set_dis_oc(uint16_t oc_mA, float dgt_ms)
     v |= (uint8_t)(oc_code << ADP5360_OC_DISCH_SHIFT);
     v |= (uint8_t)(dgt_code << ADP5360_DGT_OC_DISCH_SHIFT);
 
-    return adp5360_write_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_BATPRO_DISCH_OC_SETTING, v);
 }
 
 
@@ -969,12 +969,12 @@ static inline uint16_t _ov_dgt_ms_from_code(uint8_t code1)
     return (code1 & 1u) ? 1000u : 500u;
 }
 
-HAL_StatusTypeDef adp5360_get_ov_setting(uint16_t *ov_mV,
+HAL_StatusTypeDef ADP5360_get_ov_setting(uint16_t *ov_mV,
                                          uint8_t  *hys_pct,
                                          uint16_t *dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_OV_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_OV_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (ov_mV)   *ov_mV   = _ov_mv_from_code( (v & ADP5360_OV_CHG_MASK) >> ADP5360_OV_CHG_SHIFT );
@@ -983,12 +983,12 @@ HAL_StatusTypeDef adp5360_get_ov_setting(uint16_t *ov_mV,
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_ov_setting(uint16_t ov_mV,
+HAL_StatusTypeDef ADP5360_set_ov_setting(uint16_t ov_mV,
                                          uint8_t  hys_pct,
                                          uint16_t dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_OV_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_OV_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t ov_code  = _ov_code_from_mv(ov_mV);
@@ -1000,7 +1000,7 @@ HAL_StatusTypeDef adp5360_set_ov_setting(uint16_t ov_mV,
     v |= (uint8_t)(hys_code << ADP5360_HYS_OV_CHG_SHIFT);
     v |= (uint8_t)(dgt_code & ADP5360_DGT_OV_CHG_MASK);
 
-    return adp5360_write_u8(ADP5360_REG_BATPRO_OV_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_BATPRO_OV_SETTING, v);
 }
 
 
@@ -1034,10 +1034,10 @@ static uint16_t _dgt_chg_ms_from_code(uint8_t code2) {
     switch (code2 & 0x03u) { case 0: return 5; case 1: return 10; case 2: return 20; default: return 40; }
 }
 
-HAL_StatusTypeDef adp5360_get_chg_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
+HAL_StatusTypeDef ADP5360_get_chg_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, &v);
     if (st != HAL_OK) return st;
 
     if (oc_mA)  *oc_mA  = _occhg_ma_from_code( (v & ADP5360_OC_CHG_MASK) >> ADP5360_OC_CHG_SHIFT );
@@ -1045,10 +1045,10 @@ HAL_StatusTypeDef adp5360_get_chg_oc(uint16_t *oc_mA, uint16_t *dgt_ms)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms)
+HAL_StatusTypeDef ADP5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, &v);
     if (st != HAL_OK) return st;
 
     uint8_t oc_code  = _occhg_code_from_ma(oc_mA);
@@ -1058,7 +1058,7 @@ HAL_StatusTypeDef adp5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms)
     v |= (uint8_t)(oc_code  << ADP5360_OC_CHG_SHIFT);
     v |= (uint8_t)(dgt_code << ADP5360_DGT_OC_CHG_SHIFT);
 
-    return adp5360_write_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_BATPRO_CHG_OC_SETTING, v);
 }
 
 
@@ -1067,17 +1067,17 @@ static inline uint16_t _vsoc_code_to_mv(uint8_t code) {
     return (uint16_t)(2500u + (uint16_t)code * 8u);
 }
 
-HAL_StatusTypeDef adp5360_get_vsoc_point_mv(uint8_t reg_addr, uint16_t *vbatt_mV)
+HAL_StatusTypeDef ADP5360_get_vsoc_point_mv(uint8_t reg_addr, uint16_t *vbatt_mV)
 {
     if (!vbatt_mV) return HAL_ERROR;
     uint8_t code = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(reg_addr, &code);
+    HAL_StatusTypeDef st = ADP5360_read_u8(reg_addr, &code);
     if (st != HAL_OK) return st;
     *vbatt_mV = _vsoc_code_to_mv(code);
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_get_vsoc_table_mv(uint16_t vsoc_mV[10])
+HAL_StatusTypeDef ADP5360_get_vsoc_table_mv(uint16_t vsoc_mV[10])
 {
     if (!vsoc_mV) return HAL_ERROR;
     const uint8_t regs[10] = {
@@ -1088,7 +1088,7 @@ HAL_StatusTypeDef adp5360_get_vsoc_table_mv(uint16_t vsoc_mV[10])
     };
     for (int i = 0; i < 10; ++i) {
         uint8_t code = 0;
-        HAL_StatusTypeDef st = adp5360_read_u8(regs[i], &code);
+        HAL_StatusTypeDef st = ADP5360_read_u8(regs[i], &code);
         if (st != HAL_OK) return st;
         vsoc_mV[i] = _vsoc_code_to_mv(code);
     }
@@ -1096,29 +1096,29 @@ HAL_StatusTypeDef adp5360_get_vsoc_table_mv(uint16_t vsoc_mV[10])
 }
 
 
-HAL_StatusTypeDef adp5360_get_bat_capacity(uint16_t *capacity_mAh)
+HAL_StatusTypeDef ADP5360_get_bat_capacity(uint16_t *capacity_mAh)
 {
     if (!capacity_mAh) return HAL_ERROR;
     uint8_t code = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BAT_CAP, &code);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BAT_CAP, &code);
     if (st != HAL_OK) return st;
     *capacity_mAh = (uint16_t)code * 2u;
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_bat_capacity(uint16_t capacity_mAh)
+HAL_StatusTypeDef ADP5360_set_bat_capacity(uint16_t capacity_mAh)
 {
     // Clamp 0..510 and convert mAh -> code (2 mAh/LSB), rounding to nearest
     if (capacity_mAh > 510u) capacity_mAh = 510u;
     uint8_t code = (uint8_t)((capacity_mAh + 1u) / 2u);
-    return adp5360_write_u8(ADP5360_REG_BAT_CAP, code);
+    return ADP5360_write_u8(ADP5360_REG_BAT_CAP, code);
 }
 
 
-HAL_StatusTypeDef adp5360_get_soc(uint8_t *soc_percent, uint8_t *raw7)
+HAL_StatusTypeDef ADP5360_get_soc(uint8_t *soc_percent, uint8_t *raw7)
 {
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BAT_SOC, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BAT_SOC, &v);
     if (st != HAL_OK) return st;
 
     uint8_t r = (uint8_t)(v & 0x7Fu);   // 7-bit field
@@ -1152,11 +1152,11 @@ static float _temp_coeff_from_code(uint8_t code2) {
     switch(code2 & 0x03u){ case 0: return 0.2f; case 1: return 0.4f; case 2: return 0.6f; default: return 0.8f; }
 }
 
-HAL_StatusTypeDef adp5360_get_socaccum_ctl(adp5360_socacm_ctl_t *ctl)
+HAL_StatusTypeDef ADP5360_get_socaccum_ctl(ADP5360_socacm_ctl_t *ctl)
 {
     if (!ctl) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BAT_SOCACM_CTL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BAT_SOCACM_CTL, &v);
     if (st != HAL_OK) return st;
 
     ctl->age_reduction_pct    = _age_pct_from_code( (v & ADP5360_BATCAP_AGE_MASK)  >> ADP5360_BATCAP_AGE_SHIFT );
@@ -1166,11 +1166,11 @@ HAL_StatusTypeDef adp5360_get_socaccum_ctl(adp5360_socacm_ctl_t *ctl)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_socaccum_ctl(const adp5360_socacm_ctl_t *ctl)
+HAL_StatusTypeDef ADP5360_set_socaccum_ctl(const ADP5360_socacm_ctl_t *ctl)
 {
     if (!ctl) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BAT_SOCACM_CTL, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BAT_SOCACM_CTL, &v);
     if (st != HAL_OK) return st;
 
     uint8_t age_code  = _code_from_age_pct(ctl->age_reduction_pct);
@@ -1182,20 +1182,20 @@ HAL_StatusTypeDef adp5360_set_socaccum_ctl(const adp5360_socacm_ctl_t *ctl)
     if (ctl->en_temp_comp) v |= ADP5360_EN_BATCAP_TEMP;
     if (ctl->en_age_comp)  v |= ADP5360_EN_BATCAP_AGE;
 
-    return adp5360_write_u8(ADP5360_REG_BAT_SOCACM_CTL, v);
+    return ADP5360_write_u8(ADP5360_REG_BAT_SOCACM_CTL, v);
 }
 
 
 
-HAL_StatusTypeDef adp5360_get_soc_accumulator(uint16_t *raw12, float *charge_times)
+HAL_StatusTypeDef ADP5360_get_soc_accumulator(uint16_t *raw12, float *charge_times)
 {
     uint8_t hi = 0, lo = 0;
     HAL_StatusTypeDef st;
 
-    st = adp5360_read_u8(ADP5360_REG_BAT_SOCACM_H, &hi);
+    st = ADP5360_read_u8(ADP5360_REG_BAT_SOCACM_H, &hi);
     if (st != HAL_OK) return st;
 
-    st = adp5360_read_u8(ADP5360_REG_BAT_SOCACM_L, &lo);
+    st = ADP5360_read_u8(ADP5360_REG_BAT_SOCACM_L, &lo);
     if (st != HAL_OK) return st;
 
     uint16_t r = (uint16_t)(((uint16_t)hi << 4) | ((lo >> 4) & 0x0Fu)); // 12-bit
@@ -1206,15 +1206,15 @@ HAL_StatusTypeDef adp5360_get_soc_accumulator(uint16_t *raw12, float *charge_tim
 }
 
 
-HAL_StatusTypeDef adp5360_get_vbat(uint16_t *vbat_mV, uint16_t *raw12)
+HAL_StatusTypeDef ADP5360_get_vbat(uint16_t *vbat_mV, uint16_t *raw12)
 {
     uint8_t hi = 0, lo = 0;
     HAL_StatusTypeDef st;
 
-    st = adp5360_read_u8(ADP5360_REG_VBAT_READ_H, &hi);
+    st = ADP5360_read_u8(ADP5360_REG_VBAT_READ_H, &hi);
     if (st != HAL_OK) return st;
 
-    st = adp5360_read_u8(ADP5360_REG_VBAT_READ_L, &lo);
+    st = ADP5360_read_u8(ADP5360_REG_VBAT_READ_L, &lo);
     if (st != HAL_OK) return st;
 
     uint16_t r = (uint16_t)(((uint16_t)hi << 5) | ((lo >> 3) & 0x1Fu)); // 12-bit
@@ -1237,11 +1237,11 @@ static uint8_t _code_from_list_u16(uint16_t v, const uint16_t *opts, uint8_t n){
     return best;
 }
 
-HAL_StatusTypeDef adp5360_get_fg_mode(adp5360_fg_mode_t *m)
+HAL_StatusTypeDef ADP5360_get_fg_mode(ADP5360_fg_mode_t *m)
 {
     if(!m) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_FUEL_GAUGE_MODE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_FUEL_GAUGE_MODE, &v);
     if(st!=HAL_OK) return st;
 
     // decode
@@ -1268,11 +1268,11 @@ HAL_StatusTypeDef adp5360_get_fg_mode(adp5360_fg_mode_t *m)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_fg_mode(const adp5360_fg_mode_t *m)
+HAL_StatusTypeDef ADP5360_set_fg_mode(const ADP5360_fg_mode_t *m)
 {
     if(!m) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_FUEL_GAUGE_MODE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_FUEL_GAUGE_MODE, &v);
     if(st!=HAL_OK) return st;
 
     const uint8_t  th_opts[4] = {6,11,21,31};
@@ -1292,26 +1292,26 @@ HAL_StatusTypeDef adp5360_set_fg_mode(const adp5360_fg_mode_t *m)
     if (m->fg_mode_sleep) v |= ADP5360_FG_MODE_MASK;   // 1=sleep
     if (m->en_fg)         v |= ADP5360_EN_FG_MASK;     // 1=enable
 
-    return adp5360_write_u8(ADP5360_REG_FUEL_GAUGE_MODE, v);
+    return ADP5360_write_u8(ADP5360_REG_FUEL_GAUGE_MODE, v);
 }
 
-HAL_StatusTypeDef adp5360_fg_enable_active(void)
+HAL_StatusTypeDef ADP5360_fg_enable_active(void)
 {
-    adp5360_fg_mode_t m = { .soc_low_th_pct=11, .slp_curr_mA=10, .slp_time_min=1,
+    ADP5360_fg_mode_t m = { .soc_low_th_pct=11, .slp_curr_mA=10, .slp_time_min=1,
                             .fg_mode_sleep=0, .en_fg=1 };
-    return adp5360_set_fg_mode(&m);
+    return ADP5360_set_fg_mode(&m);
 }
 
 
-HAL_StatusTypeDef adp5360_fg_refresh(void)
+HAL_StatusTypeDef ADP5360_fg_refresh(void)
 {
     // Write 1 to bit7, then 0. Other bits are reserved/read-only.
     HAL_StatusTypeDef st;
     uint8_t v = ADP5360_SOC_RESET_MASK;
-    st = adp5360_write_u8(ADP5360_REG_SOC_RESET, v);
+    st = ADP5360_write_u8(ADP5360_REG_SOC_RESET, v);
     if (st != HAL_OK) return st;
     v = 0x00u;
-    return adp5360_write_u8(ADP5360_REG_SOC_RESET, v);
+    return ADP5360_write_u8(ADP5360_REG_SOC_RESET, v);
 }
 
 
@@ -1322,11 +1322,11 @@ static uint8_t _buck_code_from_list_u16(uint16_t v, const uint16_t *opts, uint8_
     return best;
 }
 
-HAL_StatusTypeDef adp5360_get_buck(adp5360_buck_cfg_t *cfg)
+HAL_StatusTypeDef ADP5360_get_buck(ADP5360_buck_cfg_t *cfg)
 {
     if(!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCK_CONFIGURE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCK_CONFIGURE, &v);
     if(st!=HAL_OK) return st;
 
     switch ((v & ADP5360_BUCK_SS_MASK) >> ADP5360_BUCK_SS_SHIFT) {
@@ -1348,11 +1348,11 @@ HAL_StatusTypeDef adp5360_get_buck(adp5360_buck_cfg_t *cfg)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_buck(const adp5360_buck_cfg_t *cfg)
+HAL_StatusTypeDef ADP5360_set_buck(const ADP5360_buck_cfg_t *cfg)
 {
     if(!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCK_CONFIGURE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCK_CONFIGURE, &v);
     if(st!=HAL_OK) return st;
 
     const uint16_t ss_opts[4] = {1,8,64,512};
@@ -1370,7 +1370,7 @@ HAL_StatusTypeDef adp5360_set_buck(const adp5360_buck_cfg_t *cfg)
     if (cfg->discharge_en) v |= ADP5360_DISCHG_BUCK_MASK;
     if (cfg->enable)       v |= ADP5360_EN_BUCK_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_BUCK_CONFIGURE, v);
+    return ADP5360_write_u8(ADP5360_REG_BUCK_CONFIGURE, v);
 }
 
 
@@ -1401,10 +1401,10 @@ static inline uint16_t _buck_dly_us_from_code(uint8_t code2) {
     switch (code2 & 0x03u) { case 0: return 0; case 1: return 5; case 2: return 10; default: return 20; }
 }
 
-HAL_StatusTypeDef adp5360_get_buck_vout(uint16_t *vout_mV, uint16_t *dly_us)
+HAL_StatusTypeDef ADP5360_get_buck_vout(uint16_t *vout_mV, uint16_t *dly_us)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, &v);
     if (st != HAL_OK) return st;
 
     if (vout_mV) *vout_mV = _buck_vout_mv_from_code(v & ADP5360_VOUT_BUCK_MASK);
@@ -1412,10 +1412,10 @@ HAL_StatusTypeDef adp5360_get_buck_vout(uint16_t *vout_mV, uint16_t *dly_us)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_buck_vout(uint16_t vout_mV, uint16_t dly_us)
+HAL_StatusTypeDef ADP5360_set_buck_vout(uint16_t vout_mV, uint16_t dly_us)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, &v);
     if (st != HAL_OK) return st;
 
     uint8_t code_v = _buck_vout_code_from_mv(vout_mV);
@@ -1425,7 +1425,7 @@ HAL_StatusTypeDef adp5360_set_buck_vout(uint16_t vout_mV, uint16_t dly_us)
     v |= (uint8_t)(code_v & ADP5360_VOUT_BUCK_MASK);
     v |= (uint8_t)(code_d << ADP5360_BUCK_DLY_SHIFT);
 
-    return adp5360_write_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, v);
+    return ADP5360_write_u8(ADP5360_REG_BUCK_OUTPUT_VOLTAGE, v);
 }
 
 
@@ -1436,11 +1436,11 @@ static uint8_t _code_from_list_u16_bb(uint16_t v, const uint16_t *opts, uint8_t 
     return best;
 }
 
-HAL_StatusTypeDef adp5360_get_buckboost(adp5360_buckbst_cfg_t *cfg)
+HAL_StatusTypeDef ADP5360_get_buckboost(ADP5360_buckbst_cfg_t *cfg)
 {
     if(!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCKBST_CONFIGURE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCKBST_CONFIGURE, &v);
     if(st!=HAL_OK) return st;
 
     switch ((v & ADP5360_BUCKBST_SS_MASK) >> ADP5360_BUCKBST_SS_SHIFT) {
@@ -1467,11 +1467,11 @@ HAL_StatusTypeDef adp5360_get_buckboost(adp5360_buckbst_cfg_t *cfg)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_buckboost(const adp5360_buckbst_cfg_t *cfg)
+HAL_StatusTypeDef ADP5360_set_buckboost(const ADP5360_buckbst_cfg_t *cfg)
 {
     if(!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCKBST_CONFIGURE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCKBST_CONFIGURE, &v);
     if(st!=HAL_OK) return st;
 
     const uint16_t ss_opts[4] = {1,8,64,512};
@@ -1488,7 +1488,7 @@ HAL_StatusTypeDef adp5360_set_buckboost(const adp5360_buckbst_cfg_t *cfg)
     if (cfg->discharge_en) v |= ADP5360_DISCHG_BUCKBST_MASK;
     if (cfg->enable)       v |= ADP5360_EN_BUCKBST_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_BUCKBST_CONFIGURE, v);
+    return ADP5360_write_u8(ADP5360_REG_BUCKBST_CONFIGURE, v);
 }
 
 
@@ -1535,10 +1535,10 @@ static inline uint16_t _bb_dly_us_from_code(uint8_t code2){
     switch(code2&0x03u){ case 0: return 0; case 1: return 5; case 2: return 10; default: return 20; }
 }
 
-HAL_StatusTypeDef adp5360_get_buckboost_vout(uint16_t *vout_mV, uint16_t *dly_us)
+HAL_StatusTypeDef ADP5360_get_buckboost_vout(uint16_t *vout_mV, uint16_t *dly_us)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, &v);
     if (st != HAL_OK) return st;
 
     if (vout_mV) *vout_mV = _bb_vout_mv_from_code(v & ADP5360_VOUT_BUCKBST_MASK);
@@ -1546,10 +1546,10 @@ HAL_StatusTypeDef adp5360_get_buckboost_vout(uint16_t *vout_mV, uint16_t *dly_us
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_buckboost_vout(uint16_t vout_mV, uint16_t dly_us)
+HAL_StatusTypeDef ADP5360_set_buckboost_vout(uint16_t vout_mV, uint16_t dly_us)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, &v);
     if (st != HAL_OK) return st;
 
     uint8_t code_v = _bb_vout_code_from_mv(vout_mV);
@@ -1559,17 +1559,17 @@ HAL_StatusTypeDef adp5360_set_buckboost_vout(uint16_t vout_mV, uint16_t dly_us)
     v |= (uint8_t)(code_v & ADP5360_VOUT_BUCKBST_MASK);
     v |= (uint8_t)(code_d << ADP5360_BUCKBST_DLY_SHIFT);
 
-    return adp5360_write_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, v);
+    return ADP5360_write_u8(ADP5360_REG_BUCKBST_OUTPUT_VOLTAGE, v);
 }
 
 
 
 
-HAL_StatusTypeDef adp5360_get_supervisory(adp5360_supervisory_t *cfg)
+HAL_StatusTypeDef ADP5360_get_supervisory(ADP5360_supervisory_t *cfg)
 {
     if (!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
     if (st != HAL_OK) return st;
 
     cfg->buck_rst_en    = (v & ADP5360_VOUT1_RST_MASK) ? 1u : 0u;
@@ -1588,11 +1588,11 @@ HAL_StatusTypeDef adp5360_get_supervisory(adp5360_supervisory_t *cfg)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_supervisory(const adp5360_supervisory_t *cfg)
+HAL_StatusTypeDef ADP5360_set_supervisory(const ADP5360_supervisory_t *cfg)
 {
     if (!cfg) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
     if (st != HAL_OK) return st;
 
     // clear writable control bits (leave RESET_WD alone)
@@ -1615,27 +1615,27 @@ HAL_StatusTypeDef adp5360_set_supervisory(const adp5360_supervisory_t *cfg)
     if (cfg->wd_enable)      v |= ADP5360_EN_WD_MASK;
     if (cfg->mr_shipment_en) v |= ADP5360_EN_MR_SD_MASK;
 
-    return adp5360_write_u8(ADP5360_REG_SUPERVISORY_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_SUPERVISORY_SETTING, v);
 }
 
-HAL_StatusTypeDef adp5360_watchdog_kick(void)
+HAL_StatusTypeDef ADP5360_watchdog_kick(void)
 {
     // RMW to preserve other settings; write bit0=1 (auto clears)
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_SUPERVISORY_SETTING, &v);
     if (st != HAL_OK) return st;
     v |= ADP5360_RESET_WD_MASK;
-    return adp5360_write_u8(ADP5360_REG_SUPERVISORY_SETTING, v);
+    return ADP5360_write_u8(ADP5360_REG_SUPERVISORY_SETTING, v);
 }
 
 
-HAL_StatusTypeDef adp5360_get_fault(uint8_t *mask)
+HAL_StatusTypeDef ADP5360_get_fault(uint8_t *mask)
 {
     if (!mask) return HAL_ERROR;
-    return adp5360_read_u8(ADP5360_REG_FAULT, mask);
+    return ADP5360_read_u8(ADP5360_REG_FAULT, mask);
 }
 
-HAL_StatusTypeDef adp5360_clear_fault(uint8_t mask)
+HAL_StatusTypeDef ADP5360_clear_fault(uint8_t mask)
 {
     // Sticky R/W flags: write '1' to the bits you want to clear, '0' to leave unchanged.
     // Make sure we only touch defined bits.
@@ -1643,19 +1643,19 @@ HAL_StatusTypeDef adp5360_clear_fault(uint8_t mask)
                     ADP5360_FLT_BAT_CHGOV | ADP5360_FLT_WD_TIMEOUT | ADP5360_FLT_TSD110;
     uint8_t w = mask & valid;
     if (w == 0) return HAL_OK; // nothing to clear
-    return adp5360_write_u8(ADP5360_REG_FAULT, w);
+    return ADP5360_write_u8(ADP5360_REG_FAULT, w);
 }
 
-HAL_StatusTypeDef adp5360_clear_all_faults(void)
+HAL_StatusTypeDef ADP5360_clear_all_faults(void)
 {
-    return adp5360_clear_fault(ADP5360_FLT_BAT_UV | ADP5360_FLT_BAT_OC | ADP5360_FLT_BAT_CHGOC |
+    return ADP5360_clear_fault(ADP5360_FLT_BAT_UV | ADP5360_FLT_BAT_OC | ADP5360_FLT_BAT_CHGOC |
                                ADP5360_FLT_BAT_CHGOV | ADP5360_FLT_WD_TIMEOUT | ADP5360_FLT_TSD110);
 }
 
-HAL_StatusTypeDef adp5360_get_pgood(adp5360_pgood_t *pg, uint8_t *raw)
+HAL_StatusTypeDef ADP5360_get_pgood(ADP5360_pgood_t *pg, uint8_t *raw)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_PGOOD_STATUS, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_PGOOD_STATUS, &v);
     if (st != HAL_OK) return st;
 
     if (raw) *raw = v;
@@ -1672,10 +1672,10 @@ HAL_StatusTypeDef adp5360_get_pgood(adp5360_pgood_t *pg, uint8_t *raw)
 
 
 
-HAL_StatusTypeDef adp5360_get_pgood1_mask(adp5360_pgood1_mask_t *m, uint8_t *raw)
+HAL_StatusTypeDef ADP5360_get_pgood1_mask(ADP5360_pgood1_mask_t *m, uint8_t *raw)
 {
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_PGOOD1_MASK, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_PGOOD1_MASK, &v);
     if (st != HAL_OK) return st;
     if (raw) *raw = v;
     if (m) {
@@ -1689,11 +1689,11 @@ HAL_StatusTypeDef adp5360_get_pgood1_mask(adp5360_pgood1_mask_t *m, uint8_t *raw
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_pgood1_mask(const adp5360_pgood1_mask_t *m)
+HAL_StatusTypeDef ADP5360_set_pgood1_mask(const ADP5360_pgood1_mask_t *m)
 {
     if (!m) return HAL_ERROR;
     uint8_t v=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_PGOOD1_MASK, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_PGOOD1_MASK, &v);
     if (st != HAL_OK) return st;
 
     v &= ~(ADP5360_PG1_REV_MASK | ADP5360_CHGCMPLT_MASK1 | ADP5360_VBUSOK_MASK1 |
@@ -1706,16 +1706,16 @@ HAL_StatusTypeDef adp5360_set_pgood1_mask(const adp5360_pgood1_mask_t *m)
     if (m->vout2_ok)   v |= ADP5360_VOUT2OK_MASK1;
     if (m->vout1_ok)   v |= ADP5360_VOUT1OK_MASK1;
 
-    return adp5360_write_u8(ADP5360_REG_PGOOD1_MASK, v);
+    return ADP5360_write_u8(ADP5360_REG_PGOOD1_MASK, v);
 }
 
-HAL_StatusTypeDef adp5360_get_irq_enable(adp5360_irq_enable_t *en, uint8_t *raw1, uint8_t *raw2)
+HAL_StatusTypeDef ADP5360_get_irq_enable(ADP5360_irq_enable_t *en, uint8_t *raw1, uint8_t *raw2)
 {
     if (!en) return HAL_ERROR;
     uint8_t v1=0, v2=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_INT_ENABLE1, &v1);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_INT_ENABLE1, &v1);
     if (st != HAL_OK) return st;
-    st = adp5360_read_u8(ADP5360_REG_INT_ENABLE2, &v2);
+    st = ADP5360_read_u8(ADP5360_REG_INT_ENABLE2, &v2);
     if (st != HAL_OK) return st;
 
     if (raw1) *raw1 = v1;
@@ -1738,14 +1738,14 @@ HAL_StatusTypeDef adp5360_get_irq_enable(adp5360_irq_enable_t *en, uint8_t *raw1
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_irq_enable(const adp5360_irq_enable_t *en)
+HAL_StatusTypeDef ADP5360_set_irq_enable(const ADP5360_irq_enable_t *en)
 {
     if (!en) return HAL_ERROR;
 
     uint8_t v1=0, v2=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_INT_ENABLE1, &v1);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_INT_ENABLE1, &v1);
     if (st != HAL_OK) return st;
-    st = adp5360_read_u8(ADP5360_REG_INT_ENABLE2, &v2);
+    st = ADP5360_read_u8(ADP5360_REG_INT_ENABLE2, &v2);
     if (st != HAL_OK) return st;
 
     v1 &= ~(ADP5360_EN_SOCLOW_INT | ADP5360_EN_SOCACM_INT | ADP5360_EN_ADPICHG_INT |
@@ -1767,18 +1767,18 @@ HAL_StatusTypeDef adp5360_set_irq_enable(const adp5360_irq_enable_t *en)
     if (en->buck_pg)    v2 |= ADP5360_EN_BUCKPG_INT;
     if (en->buckbst_pg) v2 |= ADP5360_EN_BUCKBSTPG_INT;
 
-    st = adp5360_write_u8(ADP5360_REG_INT_ENABLE1, v1);
+    st = ADP5360_write_u8(ADP5360_REG_INT_ENABLE1, v1);
     if (st != HAL_OK) return st;
-    return adp5360_write_u8(ADP5360_REG_INT_ENABLE2, v2);
+    return ADP5360_write_u8(ADP5360_REG_INT_ENABLE2, v2);
 }
 
 
-HAL_StatusTypeDef adp5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2)
+HAL_StatusTypeDef ADP5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2)
 {
     uint8_t f1=0, f2=0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_INT_FLAG1, &f1);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_INT_FLAG1, &f1);
     if (st != HAL_OK) return st;
-    st = adp5360_read_u8(ADP5360_REG_INT_FLAG2, &f2);
+    st = ADP5360_read_u8(ADP5360_REG_INT_FLAG2, &f2);
     if (st != HAL_OK) return st;
 
     if (flag1) *flag1 = f1;
@@ -1787,82 +1787,82 @@ HAL_StatusTypeDef adp5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2)
 }
 
 
-HAL_StatusTypeDef adp5360_get_shipmode(uint8_t *enabled)
+HAL_StatusTypeDef ADP5360_get_shipmode(uint8_t *enabled)
 {
     if (!enabled) return HAL_ERROR;
     uint8_t v = 0;
-    HAL_StatusTypeDef st = adp5360_read_u8(ADP5360_REG_SHIPMODE, &v);
+    HAL_StatusTypeDef st = ADP5360_read_u8(ADP5360_REG_SHIPMODE, &v);
     if (st != HAL_OK) return st;
     *enabled = (v & ADP5360_EN_SHIPMODE_MASK) ? 1u : 0u;
     return HAL_OK;
 }
 
-HAL_StatusTypeDef adp5360_set_shipmode(uint8_t enable)
+HAL_StatusTypeDef ADP5360_set_shipmode(uint8_t enable)
 {
     uint8_t v = enable ? ADP5360_EN_SHIPMODE_MASK : 0x00u;
     // Datasheet: writing '1' puts device into shipment mode immediately.
     // Writing '0' keeps it out of shipment mode.
-    return adp5360_write_u8(ADP5360_REG_SHIPMODE, v);
+    return ADP5360_write_u8(ADP5360_REG_SHIPMODE, v);
 }
 
 
 #define RET(x) do { HAL_StatusTypeDef _st = (x); if (_st != HAL_OK) return _st; } while(0)
 
-static inline adp5360_ithr_t _map_ithr_uA(uint16_t uA) {
+static inline ADP5360_ithr_t _map_ithr_uA(uint16_t uA) {
     if (uA <= 6)  return ADP5360_ITHR_6UA;
     if (uA <= 12) return ADP5360_ITHR_12UA;
     return ADP5360_ITHR_60UA; // default/high
 }
 
-HAL_StatusTypeDef adp5360_power_init(const adp5360_init_t *c)
+HAL_StatusTypeDef ADP5360_power_init(const ADP5360_init_t *c)
 {
     if (!c) return HAL_ERROR;
 
     // --- CHARGER ---
-    const adp5360_vsys_t vsys =
+    const ADP5360_vsys_t vsys =
         c->vbus_ilim.vsys_5V ? ADP5360_VSYS_5V : ADP5360_VSYS_VTRM_P200mV;
-    RET(adp5360_set_vbus_ilim(c->vbus_ilim.vadpichg_mV, vsys, c->vbus_ilim.ilim_mA));
+    RET(ADP5360_set_vbus_ilim(c->vbus_ilim.vadpichg_mV, vsys, c->vbus_ilim.ilim_mA));
 
-    RET(adp5360_set_chg_term(c->term.vtrm_mV, (uint16_t)(c->term.itrk_dead_mA * 10))); // mA -> dmA
-    RET(adp5360_set_chg_current_dmA((uint16_t)(c->curr.iend_mA * 10),
+    RET(ADP5360_set_chg_term(c->term.vtrm_mV, (uint16_t)(c->term.itrk_dead_mA * 10))); // mA -> dmA
+    RET(ADP5360_set_chg_current_dmA((uint16_t)(c->curr.iend_mA * 10),
                                     (uint16_t)(c->curr.ichg_mA * 10)));
-    RET(adp5360_set_voltage_thresholds(c->vth.dis_rch,
+    RET(ADP5360_set_voltage_thresholds(c->vth.dis_rch,
                                        c->vth.vrch_mV,
                                        c->vth.vtrk_dead_mV,
                                        c->vth.vweak_mV));
-    RET(adp5360_set_chg_timers(c->tmr.en_tend, c->tmr.en_chg_timer, c->tmr.period_sel));
-    RET(adp5360_set_chg_function(&c->func));
+    RET(ADP5360_set_chg_timers(c->tmr.en_tend, c->tmr.en_chg_timer, c->tmr.period_sel));
+    RET(ADP5360_set_chg_function(&c->func));
 
     // --- THERMISTOR (NTC) ---
-    RET(adp5360_set_ntc_ctrl(_map_ithr_uA(c->thr_ctrl.ithr_uA), c->thr_ctrl.en_thr));
-    RET(adp5360_set_ntc_thresholds(c->thr_limits.t60_mV, c->thr_limits.t45_mV,
+    RET(ADP5360_set_ntc_ctrl(_map_ithr_uA(c->thr_ctrl.ithr_uA), c->thr_ctrl.en_thr));
+    RET(ADP5360_set_ntc_thresholds(c->thr_limits.t60_mV, c->thr_limits.t45_mV,
                                    c->thr_limits.t10_mV, c->thr_limits.t0_mV));
 
     // --- BATTERY PROTECTION ---
-    RET(adp5360_set_batpro_ctrl(&c->batpro_ctrl));
-    RET(adp5360_set_uv_setting(c->uv_prot.vth_mV, c->uv_prot.hys_pct, c->uv_prot.dgt_ms));
-    RET(adp5360_set_dis_oc(c->dis_oc.oc_mA, c->dis_oc.dgt_ms));
-    RET(adp5360_set_ov_setting(c->ov_prot.vth_mV, c->ov_prot.hys_pct, c->ov_prot.dgt_ms));
-    RET(adp5360_set_chg_oc(c->chg_oc.oc_mA, c->chg_oc.dgt_ms));
+    RET(ADP5360_set_batpro_ctrl(&c->batpro_ctrl));
+    RET(ADP5360_set_uv_setting(c->uv_prot.vth_mV, c->uv_prot.hys_pct, c->uv_prot.dgt_ms));
+    RET(ADP5360_set_dis_oc(c->dis_oc.oc_mA, c->dis_oc.dgt_ms));
+    RET(ADP5360_set_ov_setting(c->ov_prot.vth_mV, c->ov_prot.hys_pct, c->ov_prot.dgt_ms));
+    RET(ADP5360_set_chg_oc(c->chg_oc.oc_mA, c->chg_oc.dgt_ms));
 
     // --- FUEL GAUGE ---
-    RET(adp5360_set_bat_capacity(c->bat_cap_mAh));
-    RET(adp5360_set_socaccum_ctl(&c->socacm));
-    RET(adp5360_set_fg_mode(&c->fg_mode));
-    (void)adp5360_fg_refresh(); // best-effort refresh (ignore error)
+    RET(ADP5360_set_bat_capacity(c->bat_cap_mAh));
+    RET(ADP5360_set_socaccum_ctl(&c->socacm));
+    RET(ADP5360_set_fg_mode(&c->fg_mode));
+    (void)ADP5360_fg_refresh(); // best-effort refresh (ignore error)
 
     // --- BUCK ---
-    RET(adp5360_set_buck_vout(c->buck_vout.vout_mV, c->buck_vout.dly_us));
-    RET(adp5360_set_buck(&c->buck_cfg));
+    RET(ADP5360_set_buck_vout(c->buck_vout.vout_mV, c->buck_vout.dly_us));
+    RET(ADP5360_set_buck(&c->buck_cfg));
 
     // --- BUCK-BOOST ---
-    RET(adp5360_set_buckboost_vout(c->buckbst_vout.vout_mV, c->buckbst_vout.dly_us));
-    RET(adp5360_set_buckboost(&c->buckbst_cfg));
+    RET(ADP5360_set_buckboost_vout(c->buckbst_vout.vout_mV, c->buckbst_vout.dly_us));
+    RET(ADP5360_set_buckboost(&c->buckbst_cfg));
 
     // --- SUPERVISORY / PGOOD / IRQ ---
-    RET(adp5360_set_supervisory(&c->supv));
-    RET(adp5360_set_pgood1_mask(&c->pg1));
-    RET(adp5360_set_irq_enable(&c->irq_en));
+    RET(ADP5360_set_supervisory(&c->supv));
+    RET(ADP5360_set_pgood1_mask(&c->pg1));
+    RET(ADP5360_set_irq_enable(&c->irq_en));
 
     return HAL_OK;
 }

@@ -129,16 +129,16 @@ extern I2C_HandleTypeDef hi2c3;
 #define ADP5360_REG_SHIPMODE                     0x36
 
 // ---- Basic API ----
-HAL_StatusTypeDef adp5360_init(void);                                 // probe only
-HAL_StatusTypeDef adp5360_read(uint8_t reg, uint8_t *buf, uint16_t n);
-HAL_StatusTypeDef adp5360_write(uint8_t reg, const uint8_t *buf, uint16_t n);
+HAL_StatusTypeDef ADP5360_init(void);                                 // probe only
+HAL_StatusTypeDef ADP5360_read(uint8_t reg, uint8_t *buf, uint16_t n);
+HAL_StatusTypeDef ADP5360_write(uint8_t reg, const uint8_t *buf, uint16_t n);
 
 // byte helpers
-static inline HAL_StatusTypeDef adp5360_read_u8(uint8_t reg, uint8_t *val) {
-    return adp5360_read(reg, val, 1);
+static inline HAL_StatusTypeDef ADP5360_read_u8(uint8_t reg, uint8_t *val) {
+    return ADP5360_read(reg, val, 1);
 }
-static inline HAL_StatusTypeDef adp5360_write_u8(uint8_t reg, uint8_t val) {
-    return adp5360_write(reg, &val, 1);
+static inline HAL_StatusTypeDef ADP5360_write_u8(uint8_t reg, uint8_t val) {
+    return ADP5360_write(reg, &val, 1);
 }
 
 
@@ -153,13 +153,13 @@ static inline HAL_StatusTypeDef adp5360_write_u8(uint8_t reg, uint8_t val) {
 typedef struct {
     uint8_t manuf;   // 4-bit manufacturer ID (datasheet shows default 0b0001)
     uint8_t model;   // 4-bit model ID (default 0b0000)
-} adp5360_id_t;
+} ADP5360_id_t;
 
 // R: 0x00 Manufacturer/Model
-HAL_StatusTypeDef adp5360_get_id(adp5360_id_t *out);
+HAL_StatusTypeDef ADP5360_get_id(ADP5360_id_t *out);
 
 // R: 0x01 Silicon revision (REV[3:0])
-HAL_StatusTypeDef adp5360_get_revision(uint8_t *rev4);
+HAL_StatusTypeDef ADP5360_get_revision(uint8_t *rev4);
 
 
 
@@ -176,18 +176,18 @@ HAL_StatusTypeDef adp5360_get_revision(uint8_t *rev4);
 typedef enum {
     ADP5360_VSYS_VTRM_P200mV = 0,  // VSYS = VTRM + 200mV
     ADP5360_VSYS_5V          = 1,  // VSYS = 5.0V
-} adp5360_vsys_t;
+} ADP5360_vsys_t;
 
 // Read parsed values (units: mV and mA)
-HAL_StatusTypeDef adp5360_get_vbus_ilim(uint16_t *vadpichg_mV,
-                                        adp5360_vsys_t *vsys_mode,
+HAL_StatusTypeDef ADP5360_get_vbus_ilim(uint16_t *vADPichg_mV,
+                                        ADP5360_vsys_t *vsys_mode,
                                         uint16_t *ilim_mA);
 
 // Set all fields atomically; rounds to nearest supported step.
-// Allowed: vadpichg_mV ∈ {4400,4500,4600,4700,4800,4900}
+// Allowed: vADPichg_mV ∈ {4400,4500,4600,4700,4800,4900}
 //          ilim_mA ∈ {50,100,150,200,250,300,400,500}
-HAL_StatusTypeDef adp5360_set_vbus_ilim(uint16_t vadpichg_mV,
-                                        adp5360_vsys_t vsys_mode,
+HAL_StatusTypeDef ADP5360_set_vbus_ilim(uint16_t vadpichg_mV,
+                                        ADP5360_vsys_t vsys_mode,
                                         uint16_t ilim_mA);
 
 
@@ -201,12 +201,12 @@ HAL_StatusTypeDef adp5360_set_vbus_ilim(uint16_t vadpichg_mV,
 #define ADP5360_ITRK_MASK    0x03u  // [1:0]
 
 // Get VTRM (mV) and ITRK/WEAK (deci-mA; e.g., 25 => 2.5 mA)
-HAL_StatusTypeDef adp5360_get_chg_term(uint16_t *vtrm_mV,
+HAL_StatusTypeDef ADP5360_get_chg_term(uint16_t *vtrm_mV,
                                        uint16_t *itrk_deci_mA);
 
 // Set VTRM (mV: 3560..4660, step 20) and ITRK/WEAK (deci-mA: 10,25,50,100).
 // Values are clamped to the nearest supported code.
-HAL_StatusTypeDef adp5360_set_chg_term(uint16_t vtrm_mV,
+HAL_StatusTypeDef ADP5360_set_chg_term(uint16_t vtrm_mV,
                                        uint16_t itrk_deci_mA);
 
 
@@ -218,20 +218,20 @@ HAL_StatusTypeDef adp5360_set_chg_term(uint16_t vtrm_mV,
 #define ADP5360_ICHG_MASK   0x1Fu  // [4:0]
 
 // Get termination current (mA) and fast charge current (mA)
-HAL_StatusTypeDef adp5360_get_chg_current(uint16_t *iend_mA,
+HAL_StatusTypeDef ADP5360_get_chg_current(uint16_t *iend_mA,
                                           uint16_t *ichg_mA);
 
 // Set termination and fast charge current (mA).
 // Valid IEND: {5,7.5,12.5,17.5,22.5,27.5,32.5}
 // Valid ICHG: 10..320 in 10 mA steps.
-HAL_StatusTypeDef adp5360_set_chg_current(uint16_t iend_mA,
+HAL_StatusTypeDef ADP5360_set_chg_current(uint16_t iend_mA,
                                           uint16_t ichg_mA);
 
 
 // Precise deci-mA versions (do not replace existing ones)
-HAL_StatusTypeDef adp5360_get_chg_current_dmA(uint16_t *iend_dmA,
+HAL_StatusTypeDef ADP5360_get_chg_current_dmA(uint16_t *iend_dmA,
                                               uint16_t *ichg_dmA);
-HAL_StatusTypeDef adp5360_set_chg_current_dmA(uint16_t iend_dmA,
+HAL_StatusTypeDef ADP5360_set_chg_current_dmA(uint16_t iend_dmA,
                                               uint16_t ichg_dmA);
 
 
@@ -249,14 +249,14 @@ HAL_StatusTypeDef adp5360_set_chg_current_dmA(uint16_t iend_dmA,
 #define ADP5360_VWEAK_MASK     0x07u     // [2:0]
 
 // API (units: mV; booleans are 0/1)
-HAL_StatusTypeDef adp5360_get_voltage_thresholds(
+HAL_StatusTypeDef ADP5360_get_voltage_thresholds(
     uint8_t  *recharge_disabled,  // DIS_RCH (1=disabled)
     uint16_t *vrch_mV,            // 120/180/240
     uint16_t *vtrk_dead_mV,       // 2000/2500/2600/2900
     uint16_t *vweak_mV            // 2700..3400 step 100
 );
 
-HAL_StatusTypeDef adp5360_set_voltage_thresholds(
+HAL_StatusTypeDef ADP5360_set_voltage_thresholds(
     uint8_t  recharge_disabled,   // 0 or 1
     uint16_t vrch_mV,             // must be 120/180/240
     uint16_t vtrk_dead_mV,        // 2000/2500/2600/2900
@@ -276,22 +276,22 @@ typedef enum {
     ADP5360_TMR_30_300 = 1,
     ADP5360_TMR_45_450 = 2,
     ADP5360_TMR_60_600 = 3   // default
-} adp5360_tmr_period_t;
+} ADP5360_tmr_period_t;
 
 // Read: booleans + enum, plus minutes (optional outputs can be NULL)
-HAL_StatusTypeDef adp5360_get_chg_timers(
+HAL_StatusTypeDef ADP5360_get_chg_timers(
     uint8_t *en_tend,
     uint8_t *en_chg_timer,
-    adp5360_tmr_period_t *period,
+    ADP5360_tmr_period_t *period,
     uint16_t *tmx_min,    // trickle timer (15/30/45/60)
     uint16_t *tcc_min     // fast-charge timer (150/300/450/600)
 );
 
 // Set: booleans + enum
-HAL_StatusTypeDef adp5360_set_chg_timers(
+HAL_StatusTypeDef ADP5360_set_chg_timers(
     uint8_t en_tend,
     uint8_t en_chg_timer,
-    adp5360_tmr_period_t period
+    ADP5360_tmr_period_t period
 );
 
 
@@ -315,10 +315,10 @@ typedef struct {
     uint8_t en_eoc;           // 1 allow end-of-charge
     uint8_t en_adpichg;       // 1 enable adaptive VBUS current limit
     uint8_t en_chg;           // 1 enable charging
-} adp5360_func_t;
+} ADP5360_func_t;
 
-HAL_StatusTypeDef adp5360_get_chg_function(adp5360_func_t *f);
-HAL_StatusTypeDef adp5360_set_chg_function(const adp5360_func_t *f);
+HAL_StatusTypeDef ADP5360_get_chg_function(ADP5360_func_t *f);
+HAL_StatusTypeDef ADP5360_set_chg_function(const ADP5360_func_t *f);
 
 
 // ---------- 0x08: CHARGER_STATUS1 (READ ONLY) ----------
@@ -339,22 +339,22 @@ typedef enum {
     ADP5360_CHG_LDO_MODE     = 0b101,
     ADP5360_CHG_TIMER_EXPIRED= 0b110,  // trickle or fast charge timer expired
     ADP5360_CHG_BATT_DETECT  = 0b111
-} adp5360_chg_state_t;
+} ADP5360_chg_state_t;
 
 typedef struct {
     uint8_t vbus_ov;        // 1 if VBUS over threshold (VBUS_OK)
     uint8_t adpichg_active; // 1 if adaptive charge current active
     uint8_t vbus_ilim;      // 1 if limited by VBUS input ILIM
-    adp5360_chg_state_t state;
-} adp5360_status1_t;
+    ADP5360_chg_state_t state;
+} ADP5360_status1_t;
 
 // Read & decode STATUS1
-HAL_StatusTypeDef adp5360_get_status1(adp5360_status1_t *s);
+HAL_StatusTypeDef ADP5360_get_status1(ADP5360_status1_t *s);
 
 // Optional: tiny helper to stringify the state for logs
-const char* adp5360_chg_state_str(adp5360_chg_state_t st);
+const char* ADP5360_chg_state_str(ADP5360_chg_state_t st);
 
-bool adp5360_is_charging(void);
+bool ADP5360_is_charging(void);
 
 // ---------- 0x09: CHARGER_STATUS2 (READ ONLY) ----------
 #define ADP5360_REG_CHARGER_STATUS2  0x09
@@ -372,7 +372,7 @@ typedef enum {
     ADP5360_THR_WARM  = 0b011,
     ADP5360_THR_HOT   = 0b100,
     ADP5360_THR_OK    = 0b111,  // in-range
-} adp5360_thr_status_t;
+} ADP5360_thr_status_t;
 
 // Battery status when charging (per table)
 typedef enum {
@@ -382,18 +382,18 @@ typedef enum {
     ADP5360_BATSTAT_BETWEEN  = 0b011, // VTRK_DEAD < Vbat < VWEAK (when in charge)
     ADP5360_BATSTAT_GE_VWEAK = 0b100, // Vbat ≥ VWEAK (when in charge)
     // other codes not listed → treat as unknown
-} adp5360_bat_chg_status_t;
+} ADP5360_bat_chg_status_t;
 
 typedef struct {
-    adp5360_thr_status_t     thr;
+    ADP5360_thr_status_t     thr;
     uint8_t                  bat_ov;     // 1=OV protection active
     uint8_t                  bat_uv;     // 1=UV protection active
-    adp5360_bat_chg_status_t bat_status; // BAT_CHG_STATUS[2:0]
-} adp5360_status2_t;
+    ADP5360_bat_chg_status_t bat_status; // BAT_CHG_STATUS[2:0]
+} ADP5360_status2_t;
 
-HAL_StatusTypeDef adp5360_get_status2(adp5360_status2_t *s);
-const char* adp5360_thr_status_str(adp5360_thr_status_t t);
-const char* adp5360_bat_status_str(adp5360_bat_chg_status_t b);
+HAL_StatusTypeDef ADP5360_get_status2(ADP5360_status2_t *s);
+const char* ADP5360_thr_status_str(ADP5360_thr_status_t t);
+const char* ADP5360_bat_status_str(ADP5360_bat_chg_status_t b);
 
 
 // ---------- 0x0A: BATTERY_THERMISTOR_CONTROL ----------
@@ -407,15 +407,15 @@ typedef enum {
     ADP5360_ITHR_60UA = 0,   // 60 µA
     ADP5360_ITHR_12UA = 1,   // 12 µA
     ADP5360_ITHR_6UA  = 2    // 6 µA (codes 10 or 11)
-} adp5360_ithr_t;
+} ADP5360_ithr_t;
 
-HAL_StatusTypeDef adp5360_get_ntc_ctrl(adp5360_ithr_t *ithr, uint8_t *en_thr);
-HAL_StatusTypeDef adp5360_set_ntc_ctrl(adp5360_ithr_t ithr, uint8_t en_thr);
+HAL_StatusTypeDef ADP5360_get_ntc_ctrl(ADP5360_ithr_t *ithr, uint8_t *en_thr);
+HAL_StatusTypeDef ADP5360_set_ntc_ctrl(ADP5360_ithr_t ithr, uint8_t en_thr);
 
 
 // ---------- 0x0B -> 0x0E: BATTERY_THERMISTOR_THRESHOLDS ----------
 // --- NTC thresholds: 0x0B..0x0E (mV-based helpers) ---
-HAL_StatusTypeDef adp5360_get_ntc_thresholds(
+HAL_StatusTypeDef ADP5360_get_ntc_thresholds(
     uint16_t *v60c_mV,  // code * 2 mV
     uint16_t *v45c_mV,  // code * 2 mV
     uint16_t *v10c_mV,  // code * 10 mV
@@ -423,7 +423,7 @@ HAL_StatusTypeDef adp5360_get_ntc_thresholds(
 );
 
 // Clamp to LSB size & 8-bit range. Pass mV at THR pin.
-HAL_StatusTypeDef adp5360_set_ntc_thresholds(
+HAL_StatusTypeDef ADP5360_set_ntc_thresholds(
     uint16_t v60c_mV,   // multiples of 2 mV
     uint16_t v45c_mV,   // multiples of 2 mV
     uint16_t v10c_mV,   // multiples of 10 mV
@@ -437,7 +437,7 @@ HAL_StatusTypeDef adp5360_set_ntc_thresholds(
  * Raw is a 12-bit value: RAW = {HIGH[3:0], LOW[7:0]} and THR (mV) = RAW.
  * (From DS note: NTC[kΩ] ≈ THR[mV] / ITHR[µA].)
  */
-HAL_StatusTypeDef adp5360_get_thr_voltage(uint16_t *thr_mV, uint16_t *raw12);
+HAL_StatusTypeDef ADP5360_get_thr_voltage(uint16_t *thr_mV, uint16_t *raw12);
 
 
 
@@ -456,10 +456,10 @@ typedef struct {
     uint8_t oc_chg_hiccup;    // 0=latch on charge OC, 1=hiccup mode
     uint8_t oc_dis_hiccup;    // 0=latch on discharge OC, 1=hiccup mode
     uint8_t isofet_ovchg;     // 0=ISOFET turns ON on OVCHG, 1=ISOFET turns OFF on OVCHG
-} adp5360_batpro_ctrl_t;
+} ADP5360_batpro_ctrl_t;
 
-HAL_StatusTypeDef adp5360_get_batpro_ctrl(adp5360_batpro_ctrl_t *cfg);
-HAL_StatusTypeDef adp5360_set_batpro_ctrl(const adp5360_batpro_ctrl_t *cfg);
+HAL_StatusTypeDef ADP5360_get_batpro_ctrl(ADP5360_batpro_ctrl_t *cfg);
+HAL_StatusTypeDef ADP5360_set_batpro_ctrl(const ADP5360_batpro_ctrl_t *cfg);
 
 
 
@@ -473,14 +473,14 @@ HAL_StatusTypeDef adp5360_set_batpro_ctrl(const adp5360_batpro_ctrl_t *cfg);
 #define ADP5360_DGT_UV_DISCH_MASK          0x03u  // [1:0] {30,60,120,240} ms
 
 // Get UV threshold (mV), hysteresis (%), and deglitch time (ms)
-HAL_StatusTypeDef adp5360_get_uv_setting(uint16_t *uv_mV,
+HAL_StatusTypeDef ADP5360_get_uv_setting(uint16_t *uv_mV,
                                          uint8_t  *hys_pct,
                                          uint16_t *dgt_ms);
 
 // Set UV threshold (mV), hysteresis (%), and deglitch time (ms).
 // uv_mV valid range: 2050..2800 mV (50 mV steps -> nearest).
 // hys_pct: nearest of {2,4,6,8}. dgt_ms: nearest of {30,60,120,240}.
-HAL_StatusTypeDef adp5360_set_uv_setting(uint16_t uv_mV,
+HAL_StatusTypeDef ADP5360_set_uv_setting(uint16_t uv_mV,
                                          uint8_t  hys_pct,
                                          uint16_t dgt_ms);
 
@@ -496,10 +496,10 @@ HAL_StatusTypeDef adp5360_set_uv_setting(uint16_t uv_mV,
 #define ADP5360_DGT_OC_DISCH_SHIFT 1
 
 // Get: discharge OC threshold (mA) and deglitch (ms). If code=000 for deglitch, returns 0 ms.
-HAL_StatusTypeDef adp5360_get_dis_oc(uint16_t *oc_mA, uint16_t *dgt_ms);
+HAL_StatusTypeDef ADP5360_get_dis_oc(uint16_t *oc_mA, uint16_t *dgt_ms);
 
 // Set: threshold (mA) ∈ {50,100,150,200,300,400,500,600}, deglitch (ms) nearest of {0.5,1,5,10,20,50,100}
-HAL_StatusTypeDef adp5360_set_dis_oc(uint16_t oc_mA, float dgt_ms);
+HAL_StatusTypeDef ADP5360_set_dis_oc(uint16_t oc_mA, float dgt_ms);
 
 
 // ---------- 0x14: BATPRO_OV_SETTING ----------
@@ -512,14 +512,14 @@ HAL_StatusTypeDef adp5360_set_dis_oc(uint16_t oc_mA, float dgt_ms);
 #define ADP5360_DGT_OV_CHG_MASK             0x01u  // [0] deglitch: 0=0.5 s, 1=1 s
 
 // Read OV threshold (mV), hysteresis (% of threshold), and deglitch time (ms).
-HAL_StatusTypeDef adp5360_get_ov_setting(uint16_t *ov_mV,
+HAL_StatusTypeDef ADP5360_get_ov_setting(uint16_t *ov_mV,
                                          uint8_t  *hys_pct,
                                          uint16_t *dgt_ms);
 
 // Set OV threshold (mV), hysteresis (%), and deglitch (ms).
 // ov_mV valid ~3550..4800 (rounded to 50 mV steps, clamped to 4800).
 // hys_pct nearest of {2,4,6,8}. dgt_ms nearest of {500, 1000}.
-HAL_StatusTypeDef adp5360_set_ov_setting(uint16_t ov_mV,
+HAL_StatusTypeDef ADP5360_set_ov_setting(uint16_t ov_mV,
                                          uint8_t  hys_pct,
                                          uint16_t dgt_ms);
 
@@ -535,12 +535,12 @@ HAL_StatusTypeDef adp5360_set_ov_setting(uint16_t ov_mV,
 // [2:0] reserved
 
 // Read charge overcurrent threshold (mA) and deglitch (ms)
-HAL_StatusTypeDef adp5360_get_chg_oc(uint16_t *oc_mA, uint16_t *dgt_ms);
+HAL_StatusTypeDef ADP5360_get_chg_oc(uint16_t *oc_mA, uint16_t *dgt_ms);
 
 // Set charge overcurrent threshold (mA) and deglitch (ms)
 // oc_mA ∈ {25,50,100,150,200,250,300,400} (nearest used)
 // dgt_ms nearest of {5,10,20,40}
-HAL_StatusTypeDef adp5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms);
+HAL_StatusTypeDef ADP5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms);
 
 
 
@@ -553,25 +553,25 @@ HAL_StatusTypeDef adp5360_set_chg_oc(uint16_t oc_mA, uint16_t dgt_ms);
  */
 
 // Read all 10 points into an array of mV (index order: 0,5,11,19,28,41,55,69,84,100).
-HAL_StatusTypeDef adp5360_get_vsoc_table_mv(uint16_t vsoc_mV[10]);
+HAL_StatusTypeDef ADP5360_get_vsoc_table_mv(uint16_t vsoc_mV[10]);
 
 // Read a single point (pass the register address: ADP5360_REG_V_SOC_xx).
-HAL_StatusTypeDef adp5360_get_vsoc_point_mv(uint8_t reg_addr, uint16_t *vbatt_mV);
+HAL_StatusTypeDef ADP5360_get_vsoc_point_mv(uint8_t reg_addr, uint16_t *vbatt_mV);
 
 
 // ---------- 0x20: BAT_CAP ----------
 #define ADP5360_REG_BAT_CAP  0x20
 // Capacity (mAh) = REG * 2 mAh  (8-bit register, 0..510 mAh)
 
-HAL_StatusTypeDef adp5360_get_bat_capacity(uint16_t *capacity_mAh);
-HAL_StatusTypeDef adp5360_set_bat_capacity(uint16_t capacity_mAh);  // rounded to nearest 2 mAh, clamped 0..510
+HAL_StatusTypeDef ADP5360_get_bat_capacity(uint16_t *capacity_mAh);
+HAL_StatusTypeDef ADP5360_set_bat_capacity(uint16_t capacity_mAh);  // rounded to nearest 2 mAh, clamped 0..510
 
 
 // ---------- 0x21: BAT_SOC ----------
 #define ADP5360_REG_BAT_SOC  0x21
 // BAT_SOC[6:0] -> percentage 0..100 (%)
 
-HAL_StatusTypeDef adp5360_get_soc(uint8_t *soc_percent, uint8_t *raw7);
+HAL_StatusTypeDef ADP5360_get_soc(uint8_t *soc_percent, uint8_t *raw7);
 
 
 // ---------- 0x22: BAT_SOCACM_CTL ----------
@@ -590,10 +590,10 @@ typedef struct {
     float temp_coeff_pct_per_C;  // {0.2, 0.4, 0.6, 0.8}
     uint8_t en_temp_comp;        // 0/1
     uint8_t en_age_comp;         // 0/1
-} adp5360_socacm_ctl_t;
+} ADP5360_socacm_ctl_t;
 
-HAL_StatusTypeDef adp5360_get_socaccum_ctl(adp5360_socacm_ctl_t *ctl);
-HAL_StatusTypeDef adp5360_set_socaccum_ctl(const adp5360_socacm_ctl_t *ctl);
+HAL_StatusTypeDef ADP5360_get_socaccum_ctl(ADP5360_socacm_ctl_t *ctl);
+HAL_StatusTypeDef ADP5360_set_socaccum_ctl(const ADP5360_socacm_ctl_t *ctl);
 
 
 
@@ -603,7 +603,7 @@ HAL_StatusTypeDef adp5360_set_socaccum_ctl(const adp5360_socacm_ctl_t *ctl);
 
 // Read the 12-bit accumulator and convert to “number of times charging”.
 // Per DS: charge_times = RAW12 / 100.
-HAL_StatusTypeDef adp5360_get_soc_accumulator(uint16_t *raw12, float *charge_times);
+HAL_StatusTypeDef ADP5360_get_soc_accumulator(uint16_t *raw12, float *charge_times);
 
 
 
@@ -613,7 +613,7 @@ HAL_StatusTypeDef adp5360_get_soc_accumulator(uint16_t *raw12, float *charge_tim
  *   RAW12 = {VBAT_READ_H[7:0], VBAT_READ_L[7:3]}
  *   VBAT(mV) = RAW12
  */
-HAL_StatusTypeDef adp5360_get_vbat(uint16_t *vbat_mV, uint16_t *raw12);
+HAL_StatusTypeDef ADP5360_get_vbat(uint16_t *vbat_mV, uint16_t *raw12);
 
 // ---------- 0x27: FUEL_GAUGE_MODE ----------
 #define ADP5360_REG_FUEL_GAUGE_MODE  0x27
@@ -633,20 +633,20 @@ typedef struct {
     uint16_t slp_time_min;     // 1/4/8/16
     uint8_t  fg_mode_sleep;    // 1=sleep, 0=active
     uint8_t  en_fg;            // 1=enabled
-} adp5360_fg_mode_t;
+} ADP5360_fg_mode_t;
 
-HAL_StatusTypeDef adp5360_get_fg_mode(adp5360_fg_mode_t *m);
-HAL_StatusTypeDef adp5360_set_fg_mode(const adp5360_fg_mode_t *m);
+HAL_StatusTypeDef ADP5360_get_fg_mode(ADP5360_fg_mode_t *m);
+HAL_StatusTypeDef ADP5360_set_fg_mode(const ADP5360_fg_mode_t *m);
 
 // Convenience: enable FG in ACTIVE mode with typical defaults (11%, 10mA, 1min)
-HAL_StatusTypeDef adp5360_fg_enable_active(void);
+HAL_StatusTypeDef ADP5360_fg_enable_active(void);
 
 // ---------- 0x28: SOC_RESET ----------
 #define ADP5360_REG_SOC_RESET  0x28
 #define ADP5360_SOC_RESET_MASK 0x80u  // [7] write-only pulse: write 1, then write 0
 
 // Pulse the SOC reset bit (refreshes BAT_SOC and VBAT_READ_H/L).
-HAL_StatusTypeDef adp5360_fg_refresh(void);
+HAL_StatusTypeDef ADP5360_fg_refresh(void);
 
 
 // ---------- 0x29: BUCK_CONFIGURE ----------
@@ -668,10 +668,10 @@ typedef struct {
     uint8_t  stop_enable;    // 0/1
     uint8_t  discharge_en;   // 0/1
     uint8_t  enable;         // 0/1
-} adp5360_buck_cfg_t;
+} ADP5360_buck_cfg_t;
 
-HAL_StatusTypeDef adp5360_get_buck(adp5360_buck_cfg_t *cfg);
-HAL_StatusTypeDef adp5360_set_buck(const adp5360_buck_cfg_t *cfg);
+HAL_StatusTypeDef ADP5360_get_buck(ADP5360_buck_cfg_t *cfg);
+HAL_StatusTypeDef ADP5360_set_buck(const ADP5360_buck_cfg_t *cfg);
 
 
 // ---------- 0x2A: BUCK_OUTPUT_VOLTAGE_SETTING ----------
@@ -682,11 +682,11 @@ HAL_StatusTypeDef adp5360_set_buck(const adp5360_buck_cfg_t *cfg);
 #define ADP5360_VOUT_BUCK_MASK  0x3Fu  // [5:0] 0.60 V + 50 mV * code (0..63)
 
 // Read VOUT (mV) and the hysteresis delay (µs)
-HAL_StatusTypeDef adp5360_get_buck_vout(uint16_t *vout_mV, uint16_t *dly_us);
+HAL_StatusTypeDef ADP5360_get_buck_vout(uint16_t *vout_mV, uint16_t *dly_us);
 
 // Set VOUT (mV) and delay (µs). VOUT is clamped 600..3750 mV in 50 mV steps.
 // Delay is snapped to nearest of {0,5,10,20} µs.
-HAL_StatusTypeDef adp5360_set_buck_vout(uint16_t vout_mV, uint16_t dly_us);
+HAL_StatusTypeDef ADP5360_set_buck_vout(uint16_t vout_mV, uint16_t dly_us);
 
 
 // ---------- 0x2B: BUCKBOOST_CONFIGURE ----------
@@ -706,10 +706,10 @@ typedef struct {
     uint8_t  stop_enable;    // 0/1
     uint8_t  discharge_en;   // 0/1
     uint8_t  enable;         // 0/1
-} adp5360_buckbst_cfg_t;
+} ADP5360_buckbst_cfg_t;
 
-HAL_StatusTypeDef adp5360_get_buckboost(adp5360_buckbst_cfg_t *cfg);
-HAL_StatusTypeDef adp5360_set_buckboost(const adp5360_buckbst_cfg_t *cfg);
+HAL_StatusTypeDef ADP5360_get_buckboost(ADP5360_buckbst_cfg_t *cfg);
+HAL_StatusTypeDef ADP5360_set_buckboost(const ADP5360_buckbst_cfg_t *cfg);
 
 
 // ---------- 0x2C: BUCKBOOST_OUTPUT_VOLTAGE_SETTING ----------
@@ -721,8 +721,8 @@ HAL_StatusTypeDef adp5360_set_buckboost(const adp5360_buckbst_cfg_t *cfg);
                                           // 0..11  -> 1.8V + 0.1V*code   (1.8..2.9V)
                                           // 12..63 -> 2.95V + 0.05V*(code-12) (2.95..5.5V)
 
-HAL_StatusTypeDef adp5360_get_buckboost_vout(uint16_t *vout_mV, uint16_t *dly_us);
-HAL_StatusTypeDef adp5360_set_buckboost_vout(uint16_t vout_mV, uint16_t dly_us);
+HAL_StatusTypeDef ADP5360_get_buckboost_vout(uint16_t *vout_mV, uint16_t *dly_us);
+HAL_StatusTypeDef ADP5360_set_buckboost_vout(uint16_t vout_mV, uint16_t dly_us);
 
 
 // ---------- 0x2D: SUPERVISORY_SETTING ----------
@@ -744,13 +744,13 @@ typedef struct {
     float    wd_time_s;         // 12.5 / 25.6 / 50 / 100
     uint8_t  wd_enable;         // 0/1
     uint8_t  mr_shipment_en;    // 0/1 (MR low 12s enters shipment)
-} adp5360_supervisory_t;
+} ADP5360_supervisory_t;
 
-HAL_StatusTypeDef adp5360_get_supervisory(adp5360_supervisory_t *cfg);
-HAL_StatusTypeDef adp5360_set_supervisory(const adp5360_supervisory_t *cfg);
+HAL_StatusTypeDef ADP5360_get_supervisory(ADP5360_supervisory_t *cfg);
+HAL_StatusTypeDef ADP5360_set_supervisory(const ADP5360_supervisory_t *cfg);
 
 // Kick the watchdog (write 1 to RESET_WD; bit auto-clears)
-HAL_StatusTypeDef adp5360_watchdog_kick(void);
+HAL_StatusTypeDef ADP5360_watchdog_kick(void);
 
 
 // ---------- 0x2E: FAULT ----------
@@ -766,13 +766,13 @@ HAL_StatusTypeDef adp5360_watchdog_kick(void);
 #define ADP5360_FLT_TSD110     0x01u  // [0] thermal shutdown
 
 // Read fault flags (returns raw mask above)
-HAL_StatusTypeDef adp5360_get_fault(uint8_t *mask);
+HAL_StatusTypeDef ADP5360_get_fault(uint8_t *mask);
 
 // Clear selected faults: pass a mask made of ADP5360_FLT_* bits (write-1-to-clear)
-HAL_StatusTypeDef adp5360_clear_fault(uint8_t mask);
+HAL_StatusTypeDef ADP5360_clear_fault(uint8_t mask);
 
 // Convenience: clear all defined fault bits
-HAL_StatusTypeDef adp5360_clear_all_faults(void);
+HAL_StatusTypeDef ADP5360_clear_all_faults(void);
 
 
 // ---------- 0x2F: PGOOD_STATUS ----------
@@ -792,9 +792,9 @@ typedef struct {
     uint8_t bat_ok;     // 1=VBAT > VWEAK (FG on)
     uint8_t vout2_ok;   // 1=BUCK-BOOST PG
     uint8_t vout1_ok;   // 1=BUCK PG
-} adp5360_pgood_t;
+} ADP5360_pgood_t;
 
-HAL_StatusTypeDef adp5360_get_pgood(adp5360_pgood_t *pg, uint8_t *raw);
+HAL_StatusTypeDef ADP5360_get_pgood(ADP5360_pgood_t *pg, uint8_t *raw);
 
 
 // ---------- 0x30: PGOOD1_MASK ----------
@@ -815,10 +815,10 @@ typedef struct {
     uint8_t bat_ok;       // route BATOK
     uint8_t vout2_ok;     // route BUCK-BOOST PG
     uint8_t vout1_ok;     // route BUCK PG
-} adp5360_pgood1_mask_t;
+} ADP5360_pgood1_mask_t;
 
-HAL_StatusTypeDef adp5360_get_pgood1_mask(adp5360_pgood1_mask_t *m, uint8_t *raw);
-HAL_StatusTypeDef adp5360_set_pgood1_mask(const adp5360_pgood1_mask_t *m);
+HAL_StatusTypeDef ADP5360_get_pgood1_mask(ADP5360_pgood1_mask_t *m, uint8_t *raw);
+HAL_StatusTypeDef ADP5360_set_pgood1_mask(const ADP5360_pgood1_mask_t *m);
 
 
 // ---------- 0x32: INTERRUPT_ENABLE1 ----------
@@ -855,10 +855,10 @@ typedef struct {
     uint8_t wd;         // watchdog alarm
     uint8_t buck_pg;    // VOUT1OK change
     uint8_t buckbst_pg; // VOUT2OK change
-} adp5360_irq_enable_t;
+} ADP5360_irq_enable_t;
 
-HAL_StatusTypeDef adp5360_get_irq_enable(adp5360_irq_enable_t *en, uint8_t *raw1, uint8_t *raw2);
-HAL_StatusTypeDef adp5360_set_irq_enable(const adp5360_irq_enable_t *en);
+HAL_StatusTypeDef ADP5360_get_irq_enable(ADP5360_irq_enable_t *en, uint8_t *raw1, uint8_t *raw2);
+HAL_StatusTypeDef ADP5360_set_irq_enable(const ADP5360_irq_enable_t *en);
 
 
 // ---------- 0x34: INTERRUPT_FLAG1 (read-to-clear) ----------
@@ -881,7 +881,7 @@ HAL_StatusTypeDef adp5360_set_irq_enable(const adp5360_irq_enable_t *en);
 // [3:0] reserved
 
 // Read both flag bytes (reading clears them). Any pointer can be NULL.
-HAL_StatusTypeDef adp5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2);
+HAL_StatusTypeDef ADP5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2);
 
 
 // ---------- 0x36: SHIPMODE ----------
@@ -889,12 +889,12 @@ HAL_StatusTypeDef adp5360_read_irq_flags(uint8_t *flag1, uint8_t *flag2);
 #define ADP5360_EN_SHIPMODE_MASK 0x01u  // [0] 1=enter shipment mode
 
 // Read the raw shipmode bit (note: if already in ship mode, I2C may be unavailable)
-HAL_StatusTypeDef adp5360_get_shipmode(uint8_t *enabled);
+HAL_StatusTypeDef ADP5360_get_shipmode(uint8_t *enabled);
 
 // Enter/exit ship mode.
 // WARNING: Setting enable=1 will typically shut down rails and the device may not
 // respond over I2C until a wake event (e.g., MR long-press or VBUS insert).
-HAL_StatusTypeDef adp5360_set_shipmode(uint8_t enable);
+HAL_StatusTypeDef ADP5360_set_shipmode(uint8_t enable);
 
 // ---------- Top-level init config ----------
 typedef struct {
@@ -957,29 +957,29 @@ typedef struct {
 
     // --- FUEL GAUGE (0x20, 0x22, 0x27) ---
     uint16_t bat_cap_mAh;         // 0x20 (0..510)
-    adp5360_socacm_ctl_t socacm;  // 0x22
-    adp5360_fg_mode_t    fg_mode; // 0x27
+    ADP5360_socacm_ctl_t socacm;  // 0x22
+    ADP5360_fg_mode_t    fg_mode; // 0x27
 
     // --- BUCK (0x29, 0x2A) ---
-    adp5360_buck_cfg_t   buck_cfg;
+    ADP5360_buck_cfg_t   buck_cfg;
     struct { uint16_t vout_mV; uint16_t dly_us; } buck_vout;
 
     // --- BUCK-BOOST (0x2B, 0x2C) ---
-    adp5360_buckbst_cfg_t buckbst_cfg;
+    ADP5360_buckbst_cfg_t buckbst_cfg;
     struct { uint16_t vout_mV; uint16_t dly_us; } buckbst_vout;
 
     // --- SUPERVISORY/PGOOD/IRQ (0x2D, 0x30, 0x32..0x33) ---
-    adp5360_supervisory_t   supv;
-    adp5360_pgood1_mask_t   pg1;
-    adp5360_irq_enable_t    irq_en;
-} adp5360_init_t;
+    ADP5360_supervisory_t   supv;
+    ADP5360_pgood1_mask_t   pg1;
+    ADP5360_irq_enable_t    irq_en;
+} ADP5360_init_t;
 
 // Apply full configuration (programs all blocks in a safe order)
-HAL_StatusTypeDef adp5360_power_init(const adp5360_init_t *cfg);
+HAL_StatusTypeDef ADP5360_power_init(const ADP5360_init_t *cfg);
 
 
 // One place to edit everything:
-static const adp5360_init_t adp_cfg = {
+static const ADP5360_init_t ADP_cfg = {
     // CHARGER
     .vbus_ilim = { .vadpichg_mV=4600, .vsys_5V=0, .ilim_mA=100 },
     .term      = { .vtrm_mV=4160, .itrk_dead_mA=5 },
