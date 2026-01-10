@@ -188,6 +188,14 @@ static lcd_dma_chain_t g_chain = {0};
 
 bool LCD_FlushDMA_IsDone(void) { return g_dma_done; }
 
+__weak void LCD_FlushDmaDoneCallback(void)
+{
+}
+
+__weak void LCD_FlushDmaErrorCallback(void)
+{
+}
+
 static HAL_StatusTypeDef lcd_dma_kick_next(void)
 {
     if (!g_chain.dev) return HAL_ERROR;
@@ -236,6 +244,7 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
         SCS_Low(g_chain.dev);
         g_chain.dev = NULL;
         g_dma_done = true;
+        LCD_FlushDmaDoneCallback();
         return;
     }
 
@@ -245,6 +254,7 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
         g_chain.last = st;
         g_chain.dev = NULL;
         g_dma_done = true;
+        LCD_FlushDmaErrorCallback();
     }
 }
 
@@ -257,6 +267,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     g_chain.last = HAL_ERROR;
     g_chain.dev = NULL;
     g_dma_done = true;
+    LCD_FlushDmaErrorCallback();
 }
 
 HAL_StatusTypeDef LCD_FlushAll_DMA(LS013B7DH05 *MemDisp)

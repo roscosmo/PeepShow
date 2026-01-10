@@ -48,4 +48,8 @@ void LCD_BufClean(void);
 void LCD_Invert(void);
 void LCD_Fill(bool fill);
 
+/* Optional DMA completion hooks (ISR context). */
+void LCD_FlushDmaDoneCallback(void);
+void LCD_FlushDmaErrorCallback(void);
+
 #endif

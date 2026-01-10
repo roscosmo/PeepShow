@@ -99,6 +99,7 @@ extern volatile uint32_t g_sys_event_count;
                                  APP_INPUT_FLAG_BTN_BOOT)
 
 #define APP_SYS_EVENT_BOOT_BUTTON (1UL)
+#define APP_DISPLAY_CMD_TOGGLE    (1UL)
 
 /* USER CODE END PD */
 

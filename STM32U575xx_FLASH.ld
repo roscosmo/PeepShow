@@ -164,6 +164,14 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
+  .sram4 (NOLOAD) :
+  {
+    . = ALIGN(8);
+    *(.sram4)
+    *(.sram4*)
+    . = ALIGN(8);
+  } >SRAM4
+
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
   {

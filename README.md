@@ -65,19 +65,19 @@ Wake → ~15s no interaction → Sleep (STOP2) → Wake on input/IRQ → repeat
 
 ### User Input Buttons
 - **BTN_A**  
-  Primary user button A.  
+  Primary user button A.  Used to enter menu, action button.
   Configured as GPIO input with EXTI interrupt on rising and falling edges.
 
 - **BTN_B**  
-  Primary user button B.  
+  Primary user button B.  Used to escape menus, secondary action.
   Configured as GPIO input with EXTI interrupt on rising and falling edges.
 
 - **BTN_C**  
-  Primary user button C.  
+  Primary user button L.  
   Configured as GPIO input with EXTI interrupt on rising and falling edges.
 
 - **BTN_D**  
-  Primary user button D.  
+  Primary user button R.  
   Configured as GPIO input with EXTI interrupt on rising and falling edges.
 
 - **BTN_BOOT**  

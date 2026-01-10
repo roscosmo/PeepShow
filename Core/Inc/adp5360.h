@@ -983,7 +983,7 @@ static const ADP5360_init_t ADP_cfg = {
     // CHARGER
     .vbus_ilim = { .vadpichg_mV=4600, .vsys_5V=0, .ilim_mA=100 },
     .term      = { .vtrm_mV=4160, .itrk_dead_mA=5 },
-    .curr      = { .iend_mA=17.5, .ichg_mA=100 },
+    .curr      = { .iend_mA=17.5, .ichg_mA=50 },
     .vth       = { .dis_rch=0, .vrch_mV=120, .vtrk_dead_mV=2500, .vweak_mV=3000 },
     .tmr       = { .en_tend=0, .en_chg_timer=1, .period_sel=3 },  // 60/600 min
     .func      = { .en_jeita=0, .ilim_jeita_cool_10pct=0, .off_isofet=0,

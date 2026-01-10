@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "debug_uart.h"
+#include "display_task.h"
 
 /* USER CODE END Includes */
 
@@ -361,13 +362,8 @@ void MX_FREERTOS_Init(void) {
 void StartTaskDisplay(void *argument)
 {
   /* USER CODE BEGIN tskDisplay */
-  app_display_cmd_t cmd = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    (void)osMessageQueueGet(qDisplayCmdHandle, &cmd, NULL, osWaitForever);
-  }
+  display_task_run();
   /* USER CODE END tskDisplay */
 }
 
@@ -389,6 +385,11 @@ void StartTaskUI(void *argument)
     if (osMessageQueueGet(qUIEventsHandle, &ui_event, NULL, osWaitForever) == osOK)
     {
       g_ui_event_count++;
+      if ((ui_event & (1UL << 8U)) != 0U)
+      {
+        app_display_cmd_t cmd = APP_DISPLAY_CMD_TOGGLE;
+        (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
+      }
     }
   }
   /* USER CODE END tskUI */

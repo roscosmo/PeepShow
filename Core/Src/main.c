@@ -90,7 +90,6 @@ static void MX_ICACHE_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -140,8 +139,11 @@ int main(void)
   MX_ICACHE_Init();
   /* USER CODE BEGIN 2 */
 
+  // Enable SRAM4 clock for LPDMA access to display TX buffer.
+  __HAL_RCC_SRAM4_CLK_ENABLE();
+
   // Initalise the PMIC
-  ADP5360_init();
+  // ADP5360_init();
 
   // Enable the VLT to the display
   HAL_GPIO_WritePin(VLT_LCD_GPIO_Port, VLT_LCD_Pin, GPIO_PIN_RESET);
@@ -711,7 +713,7 @@ static void MX_SPI3_Init(void)
   /* SPI3 parameter configuration*/
   hspi3.Instance = SPI3;
   hspi3.Init.Mode = SPI_MODE_MASTER;
-  hspi3.Init.Direction = SPI_DIRECTION_1LINE;
+  hspi3.Init.Direction = SPI_DIRECTION_2LINES_TXONLY;
   hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
