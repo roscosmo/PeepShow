@@ -81,6 +81,7 @@ extern volatile uint32_t g_input_event_count;
 extern volatile uint32_t g_input_debounce_drops;
 extern volatile uint32_t g_input_invalid_count;
 extern volatile uint32_t g_input_ui_drop_count;
+extern volatile uint32_t g_input_game_drop_count;
 extern volatile uint32_t g_ui_event_count;
 extern volatile uint32_t g_sys_event_count;
 
@@ -98,7 +99,12 @@ extern volatile uint32_t g_sys_event_count;
                                  APP_INPUT_FLAG_BTN_L | APP_INPUT_FLAG_BTN_R | \
                                  APP_INPUT_FLAG_BTN_BOOT)
 
+#define APP_MODE_UI             (1UL << 0U)
+#define APP_MODE_GAME           (1UL << 1U)
+
 #define APP_SYS_EVENT_BOOT_BUTTON (1UL)
+#define APP_SYS_EVENT_ENTER_GAME  (1UL << 1U)
+#define APP_SYS_EVENT_EXIT_GAME   (1UL << 2U)
 #define APP_DISPLAY_CMD_TOGGLE    (1UL)
 
 /* USER CODE END PD */

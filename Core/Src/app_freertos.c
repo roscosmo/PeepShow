@@ -25,6 +25,7 @@
 #include "debug_uart.h"
 #include "display_task.h"
 #include "ui_task.h"
+#include "game_task.h"
 
 /* USER CODE END Includes */
 
@@ -65,6 +66,7 @@ volatile uint32_t g_input_event_count = 0U;
 volatile uint32_t g_input_debounce_drops = 0U;
 volatile uint32_t g_input_invalid_count = 0U;
 volatile uint32_t g_input_ui_drop_count = 0U;
+volatile uint32_t g_input_game_drop_count = 0U;
 volatile uint32_t g_ui_event_count = 0U;
 volatile uint32_t g_sys_event_count = 0U;
 
@@ -349,7 +351,10 @@ void MX_FREERTOS_Init(void) {
   egDebugHandle = osEventFlagsNew(&egDebug_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
+  if (egModeHandle != NULL)
+  {
+    (void)osEventFlagsSet(egModeHandle, APP_MODE_UI);
+  }
   /* USER CODE END RTOS_EVENTS */
 
 }
@@ -431,6 +436,19 @@ void StartTaskPower(void *argument)
     if (osMessageQueueGet(qSysEventsHandle, &sys_event, NULL, osWaitForever) == osOK)
     {
       g_sys_event_count++;
+      if (egModeHandle != NULL)
+      {
+        if (sys_event == APP_SYS_EVENT_ENTER_GAME)
+        {
+          (void)osEventFlagsClear(egModeHandle, APP_MODE_UI);
+          (void)osEventFlagsSet(egModeHandle, APP_MODE_GAME);
+        }
+        else if (sys_event == APP_SYS_EVENT_EXIT_GAME)
+        {
+          (void)osEventFlagsClear(egModeHandle, APP_MODE_GAME);
+          (void)osEventFlagsSet(egModeHandle, APP_MODE_UI);
+        }
+      }
     }
   }
   /* USER CODE END tskPower */
@@ -486,13 +504,8 @@ void StartTaskFileSystem(void *argument)
 void StartTaskGame(void *argument)
 {
   /* USER CODE BEGIN tskGame */
-  app_game_event_t event = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    (void)osMessageQueueGet(qGameEventsHandle, &event, NULL, osWaitForever);
-  }
+  game_task_run();
   /* USER CODE END tskGame */
 }
 
@@ -561,20 +574,70 @@ static void app_input_process_event(const app_input_event_t *evt)
                     (unsigned long)evt->button_id,
                     (unsigned long)evt->pressed);
 
-  app_ui_event_t ui_event = g_input_last_flags;
-  if (osMessageQueuePut(qUIEventsHandle, &ui_event, 0U, 0U) == osOK)
-  {
-    g_input_event_count++;
-  }
-  else
-  {
-    g_input_ui_drop_count++;
-  }
-
   if (evt->button_id == (uint8_t)APP_BUTTON_BOOT)
   {
     app_sys_event_t sys_event = APP_SYS_EVENT_BOOT_BUTTON;
     (void)osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, 0U);
+    return;
+  }
+
+  if (evt->button_id == (uint8_t)APP_BUTTON_B)
+  {
+    if (evt->pressed != 0U)
+    {
+      uint32_t mode_flags = 0U;
+      if (egModeHandle != NULL)
+      {
+        uint32_t flags = osEventFlagsGet(egModeHandle);
+        if ((int32_t)flags >= 0)
+        {
+          mode_flags = flags;
+        }
+      }
+
+      app_sys_event_t sys_event = APP_SYS_EVENT_ENTER_GAME;
+      if ((mode_flags & APP_MODE_GAME) != 0U)
+      {
+        sys_event = APP_SYS_EVENT_EXIT_GAME;
+      }
+      (void)osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, 0U);
+    }
+    return;
+  }
+
+  uint32_t mode_flags = 0U;
+  if (egModeHandle != NULL)
+  {
+    uint32_t flags = osEventFlagsGet(egModeHandle);
+    if ((int32_t)flags >= 0)
+    {
+      mode_flags = flags;
+    }
+  }
+
+  if ((mode_flags & APP_MODE_GAME) != 0U)
+  {
+    app_game_event_t game_event = g_input_last_flags;
+    if (osMessageQueuePut(qGameEventsHandle, &game_event, 0U, 0U) == osOK)
+    {
+      g_input_event_count++;
+    }
+    else
+    {
+      g_input_game_drop_count++;
+    }
+  }
+  else
+  {
+    app_ui_event_t ui_event = g_input_last_flags;
+    if (osMessageQueuePut(qUIEventsHandle, &ui_event, 0U, 0U) == osOK)
+    {
+      g_input_event_count++;
+    }
+    else
+    {
+      g_input_ui_drop_count++;
+    }
   }
 }
 

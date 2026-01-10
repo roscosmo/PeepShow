@@ -23,14 +23,12 @@ void ui_task_run(void)
     }
 
     uint32_t button_id = (ui_event & 0xFFU);
-    if (button_id != (uint32_t)APP_BUTTON_A)
+    if (button_id == (uint32_t)APP_BUTTON_A)
     {
-      continue;
+      inverted = (uint8_t)((inverted == 0U) ? 1U : 0U);
+
+      app_display_cmd_t cmd = APP_DISPLAY_CMD_TOGGLE;
+      (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
     }
-
-    inverted = (uint8_t)((inverted == 0U) ? 1U : 0U);
-
-    app_display_cmd_t cmd = APP_DISPLAY_CMD_TOGGLE;
-    (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
   }
 }

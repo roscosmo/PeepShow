@@ -655,7 +655,7 @@ Goal: tasks run, queues work, heap stable.
 - [x] Confirm FreeRTOS heap scheme is Heap_4 and TOTAL_HEAP_SIZE is 64 KB
 - [x] Confirm stack overflow check and malloc failed hook are enabled
 - [x] Create tasks and ensure each blocks correctly (no polling loops)
-- [ ] Confirm qSysEvents path to tskPower exists (tskPower can be a stub initially)
+- [x] Confirm qSysEvents path to tskPower exists (tskPower can be a stub initially)
 - [x] Confirm button EXTI events can reach tskInput then tskUI (UI mode only)
 
 Implementation notes (Phase 0 input path):
@@ -676,11 +676,11 @@ Acceptance:
 ## Phase 1 — Display Awake-Mode (SPI3 + LPDMA, still no STOP2)
 Goal: eliminate partial/incomplete flush issues before power complexity.
 
-- [ ] Implement tskDisplay as exclusive SPI3 owner
-- [ ] Implement one-in-flight flush rule
-- [ ] Implement dirty-region tracking and basic coalescing
-- [ ] Wire SPI3 LPDMA complete → signal tskDisplay (thread flag)
-- [ ] Add a minimal UI action to trigger repeated redraw/invalidate
+- [x] Implement tskDisplay as exclusive SPI3 owner
+- [x] Implement one-in-flight flush rule
+- [x] Implement dirty-region tracking and basic coalescing
+- [x] Wire SPI3 LPDMA complete → signal tskDisplay (thread flag)
+- [x] Add a minimal UI action to trigger repeated redraw/invalidate
 - [ ] Stress test: thousands of flushes, no corruption
 
 Acceptance:
@@ -689,14 +689,20 @@ Acceptance:
 - System remains responsive during flushes
 - Only tskDisplay touches SPI3
 
+Implementation notes (Phase 1 display):
+- display_renderer owns the framebuffer in SRAM4 and tracks dirty rows via a per-row bitmask.
+- tskDisplay builds a non-contiguous row list and flushes via LPDMA using the driver.
+- LS013B7DH05 is transport-only; it receives a buffer pointer for each flush.
+- DMA completion/error signals tskDisplay via thread flags (no polling loops).
+
 ---
 
 ## Phase 2 — UI Rendering Discipline (no STOP2)
 Goal: UI generates commands, display consumes, no redraw loops.
 
 - [ ] Implement UI router/page structure minimal
-- [ ] UI sends invalidate commands only when state changes
-- [ ] Ensure no periodic redraw unless explicitly needed
+- [x] UI sends invalidate commands only when state changes
+- [x] Ensure no periodic redraw unless explicitly needed
 - [ ] Confirm display idle most of the time in static menus
 
 Acceptance:
@@ -709,13 +715,13 @@ Acceptance:
 ## Phase 3 — Input Routing + Game Mode Switching (no STOP2)
 Goal: games are modules, inputs route cleanly.
 
-- [ ] tskInput implements mode routing:
+- [x] tskInput implements mode routing:
   - normal → qUIEvents
   - game → qGameEvents
-- [ ] Implement global hotkeys bypassing game mode
+- [x] Implement global hotkeys bypassing game mode
 - [ ] UI triggers enter/exit game via sys event
 - [ ] tskGame runs one module at a time (logic + draw only)
-- [ ] Exiting game returns routing back to UI
+- [x] Exiting game returns routing back to UI
 
 Acceptance:
 - Inputs go to game only in game mode

@@ -39,9 +39,9 @@ static void display_flush_dirty(void)
     }
   }
 
-  uint16_t start_row = 0U;
-  uint16_t end_row = 0U;
-  if (!renderTakeDirtySpan(&start_row, &end_row))
+  uint16_t count = 0U;
+  bool full = false;
+  if (!renderTakeDirtyRows(s_rows, DISPLAY_HEIGHT, &count, &full))
   {
     return;
   }
@@ -49,31 +49,26 @@ static void display_flush_dirty(void)
   const uint8_t *buf = renderGetBuffer();
   if (buf == NULL)
   {
-    renderMarkDirtyRows(start_row, end_row);
+    renderMarkDirtyList(s_rows, count);
     return;
   }
 
   (void)osThreadFlagsClear(kDisplayFlagDmaDone | kDisplayFlagDmaError);
   s_display_busy = true;
   HAL_StatusTypeDef st = HAL_ERROR;
-  if ((start_row == 1U) && (end_row == DISPLAY_HEIGHT))
+  if (full)
   {
     st = LCD_FlushAll_DMA(&s_display, buf);
   }
   else
   {
-    uint16_t count = (uint16_t)(end_row - start_row + 1U);
-    for (uint16_t i = 0U; i < count; ++i)
-    {
-      s_rows[i] = (uint16_t)(start_row + i);
-    }
     st = LCD_FlushRows_DMA(&s_display, buf, s_rows, count);
   }
 
   if (st != HAL_OK)
   {
     s_display_busy = false;
-    renderMarkDirtyRows(start_row, end_row);
+    renderMarkDirtyList(s_rows, count);
     return;
   }
 
@@ -86,7 +81,7 @@ static void display_flush_dirty(void)
     {
       s_display_busy = false;
     }
-    renderMarkDirtyRows(start_row, end_row);
+    renderMarkDirtyList(s_rows, count);
     return;
   }
 
@@ -96,7 +91,7 @@ static void display_flush_dirty(void)
   }
   if ((flags & (int32_t)kDisplayFlagDmaError) != 0)
   {
-    renderMarkDirtyRows(start_row, end_row);
+    renderMarkDirtyList(s_rows, count);
   }
 }
 

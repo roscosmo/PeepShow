@@ -56,6 +56,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_task.c
     Core/Src/display_renderer.c
     Core/Src/ui_task.c
+    Core/Src/game_task.c
 )
 
 # Add include paths

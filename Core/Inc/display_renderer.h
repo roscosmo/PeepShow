@@ -13,8 +13,9 @@ extern "C" {
 
 void renderInit(void);
 const uint8_t *renderGetBuffer(void);
-bool renderTakeDirtySpan(uint16_t *start_row, uint16_t *end_row);
+bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count, bool *out_full);
 void renderMarkDirtyRows(uint16_t start_row, uint16_t end_row);
+void renderMarkDirtyList(const uint16_t *rows, uint16_t row_count);
 
 void renderFill(bool fill);
 void renderInvert(void);
