@@ -1,206 +1,321 @@
-/* Sharp_MIP Sharp Memory Display Driver code
- * Sharp_MIP
-.c
- *
- *  Created on: Nov 26, 2020
- *      Author: TinLethax (Thipok Jiamjarapan)
- *      email : thipok17@gmail.com
- */
 #include "Sharp_MIP.h"
-#include "font8x8_basic.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
-//Display Commands
-uint8_t clearCMD[2] = {0x20,0x00}; // Display Clear 0x04 (HW_LSB)
-uint8_t printCMD[2] = {0x80,0x00}; // Display Bitmap (after issued display update) 0x01 (HW_LSB)
+/*
+ * Panel: 144 x 168 (LS013B7DH05 class)
+ *
+ * Stream format (EXTCOM handled externally):
+ *   [WRITE_CMD = 0x01]
+ *   repeat per line:
+ *     [GATE_ADDR (1..168)]
+ *     [LINE_DATA (LINE_WIDTH bytes)]
+ *     [DUMMY 0x00]  (8 clocks)
+ *   end:
+ *     [DUMMY 0x00]  (extra 8 clocks; total 16 after last line)
+ *
+ * IMPORTANT CHANGE:
+ *   DispBuf is stored in PANEL BYTE ORDER already.
+ *   => flush does NOT do rev8() on pixel bytes.
+ *
+ * SPI:
+ *   - 8-bit
+ *   - CPOL=0, CPHA=1Edge
+ *   - FirstBit = LSB (recommended, matches Sharp MIP examples)
+ *   - CS is ACTIVE HIGH and must stay HIGH during the whole update stream
+ */
 
+#define MLCD_CMD_WRITE   (0x01u)
+#define MLCD_CMD_CLEAR   (0x04u)
 
-//This buffer holds 50 Bytes * 240 Row = 12K of Display buffer
-uint8_t *DispBuf;// entire display buffer.
+#define SPI_TIMEOUT_MS   (150u)
 
-//This buffer holds temporary 2 Command bytes
-static uint8_t SendBuf[2];
+/* STM32U5 SPI TSIZE practical limit per HAL transmit/DMA chunk */
+#define SPI_TX_CHUNK_MAX (255u)
 
-//This buffer holds 1 Character bitmap image (8x8)
-static uint8_t chBuf[8];
+/* Full-screen stream bytes:
+ * 1 + H*(addr + data + dummy) + 1
+ * = 1 + 168*(1+18+1) + 1 = 3362
+ */
+#define TXBUF_MAX (1u + (DISPLAY_HEIGHT * (LINE_WIDTH + 2u)) + 1u)
 
-//These Vars required for print function
-static uint8_t YLine = 1;
-static uint8_t Xcol = 1;
+/* Put txBuf in SRAM4 for LPDMA */
+#if defined(__GNUC__)
+  #define SRAM4_BUF_ATTR __attribute__((section(".sram4"))) __attribute__((aligned(4)))
+#elif defined(__ICCARM__)
+  #define SRAM4_BUF_ATTR __attribute__((section(".sram4"))) __attribute__((aligned(4)))
+#else
+  #define SRAM4_BUF_ATTR
+#endif
 
-uint8_t smallRbit(uint8_t re){
-	return (uint8_t)(__RBIT(re) >> 24);
+static uint8_t txBuf[TXBUF_MAX] SRAM4_BUF_ATTR;
+
+uint8_t *DispBuf = NULL;
+
+static inline void SCS_High(Sharp_MIP *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_SET); }
+static inline void SCS_Low (Sharp_MIP *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_RESET); }
+
+/* --------------------------- Blocking chunked TX --------------------------- */
+static HAL_StatusTypeDef spi_tx_chunked(Sharp_MIP *d, const uint8_t *buf, uint32_t len)
+{
+    while (len > 0u) {
+        uint16_t chunk = (len > SPI_TX_CHUNK_MAX) ? (uint16_t)SPI_TX_CHUNK_MAX : (uint16_t)len;
+        HAL_StatusTypeDef st = HAL_SPI_Transmit(d->Bus, (uint8_t*)buf, chunk, SPI_TIMEOUT_MS);
+        if (st != HAL_OK) return st;
+        buf += chunk;
+        len -= chunk;
+    }
+    return HAL_OK;
 }
 
-// Display Initialization
-void LCD_Init(Sharp_MIP *MemDisp, SPI_HandleTypeDef *Bus,
-		GPIO_TypeDef *dispGPIO,uint16_t LCDcs){
+/* --------------------------- Build write burst ----------------------------- */
+/* rows[] are 1-based gate lines (1..DISPLAY_HEIGHT). */
+static HAL_StatusTypeDef BuildWriteBurst(const uint16_t *rows, uint16_t rowCount, uint16_t *outLen)
+{
+    if (!outLen || !DispBuf || !rows || rowCount == 0u) return HAL_ERROR;
+    *outLen = 0;
 
-	//Store params into our struct
-	MemDisp->Bus = Bus;
-	MemDisp->dispGPIO = dispGPIO;
-	MemDisp->LCDcs = LCDcs;
+    uint32_t needed = 1u + ((uint32_t)rowCount * (1u + LINE_WIDTH + 1u)) + 1u;
+    if (needed > TXBUF_MAX) return HAL_ERROR;
 
+    uint32_t w = 0u;
+    txBuf[w++] = MLCD_CMD_WRITE;
 
-	DispBuf = malloc(BUFFER_LENGTH);
-	memset(DispBuf, 0xFF, BUFFER_LENGTH);
+    for (uint16_t i = 0; i < rowCount; i++) {
+        uint16_t r = rows[i];
+        if (r < 1u || r > DISPLAY_HEIGHT) return HAL_ERROR;
 
+        txBuf[w++] = (uint8_t)r;
 
+        uint32_t offset = (uint32_t)(r - 1u) * LINE_WIDTH;
 
-	//At lease 3 + 13 clock is needed for Display clear (16 Clock = 8x2 bit = 2 byte)
-	HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_SET);
-	HAL_SPI_Transmit(MemDisp->Bus, (uint8_t *)clearCMD, 2,150); //According to Datasheet
-	HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_RESET);
+        /* NO rev8(): DispBuf is already in panel order */
+        memcpy(&txBuf[w], &DispBuf[offset], LINE_WIDTH);
+        w += LINE_WIDTH;
 
+        txBuf[w++] = 0x00u; /* per-line dummy */
+    }
 
+    txBuf[w++] = 0x00u; /* final dummy */
+    *outLen = (uint16_t)w;
+    return HAL_OK;
 }
 
-// Display update (Transmit data)
-void LCD_Update(Sharp_MIP *MemDisp){
-	SendBuf[0] = printCMD[0]; // M0 High, M2 Low
-	HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_SET);// Begin
+/* --------------------------- Public: init/clean ---------------------------- */
+HAL_StatusTypeDef LCD_Init(Sharp_MIP *MemDisp,
+                           SPI_HandleTypeDef *Bus,
+                           GPIO_TypeDef *dispGPIO,
+                           uint16_t LCDcs)
+{
+    if (!MemDisp || !Bus || !dispGPIO) return HAL_ERROR;
 
-	for(uint8_t count = 0 ;count < DISPLAY_HEIGHT+1;count++){
-	SendBuf[1] = smallRbit(count+1);// counting from row number 1 to row number 240
-	//row to DispBuf offset
-	uint16_t offset = count * LINE_WIDTH;
+    MemDisp->Bus      = Bus;
+    MemDisp->dispGPIO = dispGPIO;
+    MemDisp->LCDcs    = LCDcs;
 
-	HAL_SPI_Transmit(MemDisp->Bus, SendBuf, 2, 150);
-	HAL_SPI_Transmit(MemDisp->Bus, DispBuf+offset, LINE_WIDTH, 150);
-	}
-	//Send the Dummies bytes after whole display data transmission
-	HAL_SPI_Transmit(MemDisp->Bus, 0x00,2,150);
+    if (!DispBuf) {
+        DispBuf = (uint8_t*)malloc(BUFFER_LENGTH);
+        if (!DispBuf) return HAL_ERROR;
+    }
 
-	HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_RESET);// Done
+    /* Start white (panel-order) */
+    memset(DispBuf, 0xFF, BUFFER_LENGTH);
+
+    return LCD_Clean(MemDisp);
 }
 
-//Clean the Buffer
-void LCD_BufClean(void){
-	YLine = 1;
-	Xcol = 1;
-	memset(DispBuf, 0xFF, BUFFER_LENGTH);
+HAL_StatusTypeDef LCD_Clean(Sharp_MIP *MemDisp)
+{
+    if (!MemDisp || !DispBuf) return HAL_ERROR;
+
+    /* Also reset RAM buffer to white */
+    memset(DispBuf, 0xFF, BUFFER_LENGTH);
+
+    uint8_t clearSeq[2] = { MLCD_CMD_CLEAR, 0x00u };
+
+    SCS_High(MemDisp);
+    HAL_StatusTypeDef st = HAL_SPI_Transmit(MemDisp->Bus, clearSeq, sizeof(clearSeq), SPI_TIMEOUT_MS);
+    SCS_Low(MemDisp);
+
+    return st;
 }
 
-// Clear entire Display
-void LCD_Clean(Sharp_MIP *MemDisp){
-	YLine = 1;
-	Xcol = 1;
-		//At lease 3 + 13 clock is needed for Display clear (16 Clock = 8x2 bit = 2 byte)
-		HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_SET);
-		HAL_SPI_Transmit(MemDisp->Bus, (uint8_t *)clearCMD, 2,150); //According to Datasheet
-		HAL_GPIO_WritePin(MemDisp->dispGPIO,MemDisp->LCDcs,GPIO_PIN_RESET);
+/* --------------------------- Public: blocking flush ------------------------ */
+HAL_StatusTypeDef LCD_FlushAll(Sharp_MIP *MemDisp)
+{
+    if (!MemDisp || !DispBuf) return HAL_ERROR;
 
+    static uint16_t allRows[DISPLAY_HEIGHT];
+    for (uint16_t i = 0; i < DISPLAY_HEIGHT; i++) allRows[i] = (uint16_t)(i + 1u);
+
+    uint16_t len = 0;
+    HAL_StatusTypeDef st = BuildWriteBurst(allRows, DISPLAY_HEIGHT, &len);
+    if (st != HAL_OK) return st;
+
+    SCS_High(MemDisp);
+    st = spi_tx_chunked(MemDisp, txBuf, len);
+    SCS_Low(MemDisp);
+
+    return st;
 }
 
-// Buffer update (full 400*240 pixels)
-void LCD_LoadFull(uint8_t * BMP){
-	/*for(uint16_t l; l < 12000; l++){
-		DispBuf[l] = (uint8_t)(__RBIT(BMP[l]) >> 24);
-	}*/
-	memcpy(DispBuf, BMP, BUFFER_LENGTH);
+HAL_StatusTypeDef LCD_FlushRows(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount)
+{
+    if (!MemDisp || !DispBuf) return HAL_ERROR;
+
+    uint16_t len = 0;
+    HAL_StatusTypeDef st = BuildWriteBurst(rows, rowCount, &len);
+    if (st != HAL_OK) return st;
+
+    SCS_High(MemDisp);
+    st = spi_tx_chunked(MemDisp, txBuf, len);
+    SCS_Low(MemDisp);
+
+    return st;
 }
 
-// Buffer update (with X,Y Coordinate and image WxH) X,Y Coordinate start at (1,1) to (50,240)
-//
-//NOTE THAT THE X COOR and WIDTH ARE BYTE NUMBER NOT PIXEL NUMBER (8 pixel = 1 byte). A.K.A IT'S BYTE ALIGNED
-//
-void LCD_LoadPart(uint8_t* BMP, uint8_t Xcord, uint8_t Ycord, uint8_t bmpW, uint8_t bmpH){
+/* --------------------------- DMA chunk chaining ---------------------------- */
+typedef struct {
+    Sharp_MIP     *dev;
+    const uint8_t *p;
+    uint32_t       remaining;
+    HAL_StatusTypeDef last;
+} lcd_dma_chain_t;
 
-	Xcord = Xcord - 1;
-	Ycord = Ycord - 1;
-	uint16_t XYoff,WHoff = 0;
+static volatile bool g_dma_done = true;
+static lcd_dma_chain_t g_chain = {0};
 
-	//Counting from Y origin point to bmpH using for loop
-	for(uint8_t loop = 0; loop < bmpH; loop++){
-		// turn X an Y into absolute offset number for Buffer
-		XYoff = (Ycord+loop) * LINE_WIDTH;
-		XYoff += Xcord;// offset start at the left most, The count from left to right for Xcord times
+bool LCD_FlushDMA_IsDone(void) { return g_dma_done; }
 
-		// turn W and H into absolute offset number for Bitmap image
-		WHoff = loop * bmpW;
+static HAL_StatusTypeDef lcd_dma_kick_next(void)
+{
+    if (!g_chain.dev) return HAL_ERROR;
+    if (g_chain.remaining == 0u) return HAL_OK;
 
-		memcpy(DispBuf + XYoff, BMP + WHoff, bmpW);
-	}
-
+    uint16_t n = (g_chain.remaining > SPI_TX_CHUNK_MAX) ? (uint16_t)SPI_TX_CHUNK_MAX
+                                                        : (uint16_t)g_chain.remaining;
+    return HAL_SPI_Transmit_DMA(g_chain.dev->Bus, (uint8_t*)g_chain.p, n);
 }
 
-/* FIXME TODO */
-//Similar to LCD_LoadPart, but x,y coordinate are BOTH PIXEL position.
-void LCD_LoadPix(uint8_t* BMP, uint16_t Xcord, uint8_t Ycord, uint16_t bmpW, uint8_t bmpH){
-	if ((bmpW > DISPLAY_WIDTH) | (Xcord >DISPLAY_WIDTH) | (Ycord > DISPLAY_HEIGHT) | (bmpH > DISPLAY_HEIGHT)) return;
+static HAL_StatusTypeDef lcd_dma_start(Sharp_MIP *dev, const uint8_t *buf, uint32_t len)
+{
+    if (!dev || !buf || len == 0u) return HAL_ERROR;
+    if (!g_dma_done) return HAL_BUSY;
 
-	Xcord = Xcord - 1;
-	Ycord = Ycord - 1;
+    g_chain.dev = dev;
+    g_chain.p = buf;
+    g_chain.remaining = len;
+    g_chain.last = HAL_OK;
 
+    g_dma_done = false;
 
-	//bmpW = (uint8_t)(bmpW / 8);
+    SCS_High(dev);
 
-	//Shifting value to align the pixel with the byte
-	uint8_t Shiftval = (uint8_t)(Xcord % 8);
-
-	//Counting from Y origin point to bmpH using for loop
-	for(uint8_t loop = 0; loop < bmpH; loop++){
-		// turn X an Y into absolute offset number for Buffer
-		uint16_t XYoff = ((Ycord+loop) * LINE_WIDTH)   + (uint8_t)(Xcord/8)  + (Xcord % 8 ? 1 : 0);
-
-		// turn W and H into absolute offset number for Bitmap image
-		uint16_t WHoff = (loop * (uint8_t)(bmpW/8) )  + (bmpW % 8 ? 1 : 0);
-
-		// Byte Filling
-		for (uint16_t i=0;i < (bmpW/8) ;i ++){
-			DispBuf[i+XYoff] |= (BMP[WHoff + i] >> Shiftval) ;
-			DispBuf[i+XYoff+1] = (BMP[WHoff+i] << (7 - Shiftval));
-		}
-
-	}
+    HAL_StatusTypeDef st = lcd_dma_kick_next();
+    if (st != HAL_OK) {
+        SCS_Low(dev);
+        g_chain.dev = NULL;
+        g_dma_done = true;
+        return st;
+    }
+    return HAL_OK;
 }
 
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (!g_chain.dev || !g_chain.dev->Bus) return;
+    if (hspi != g_chain.dev->Bus) return;
 
-//Invert color of Display memory buffer
-void LCD_Invert(void){
-	uint16_t invt = BUFFER_LENGTH;
-	do{
-	invt--;
-	DispBuf[invt] = ~DispBuf[invt];
-	}while(invt);
+    uint32_t sent = (g_chain.remaining > SPI_TX_CHUNK_MAX) ? (uint32_t)SPI_TX_CHUNK_MAX : g_chain.remaining;
+
+    g_chain.p += sent;
+    g_chain.remaining -= sent;
+
+    if (g_chain.remaining == 0u) {
+        SCS_Low(g_chain.dev);
+        g_chain.dev = NULL;
+        g_dma_done = true;
+        return;
+    }
+
+    HAL_StatusTypeDef st = lcd_dma_kick_next();
+    if (st != HAL_OK) {
+        SCS_Low(g_chain.dev);
+        g_chain.last = st;
+        g_chain.dev = NULL;
+        g_dma_done = true;
+    }
 }
 
-//Fill screen with either black or white color
-void LCD_Fill(bool fill){
-	memset(DispBuf, (fill ? 0 : 0xFF) , BUFFER_LENGTH);
-	HAL_Delay(10);
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+    if (!g_chain.dev || !g_chain.dev->Bus) return;
+    if (hspi != g_chain.dev->Bus) return;
+
+    SCS_Low(g_chain.dev);
+    g_chain.last = HAL_ERROR;
+    g_chain.dev = NULL;
+    g_dma_done = true;
 }
 
+HAL_StatusTypeDef LCD_FlushAll_DMA(Sharp_MIP *MemDisp)
+{
+    if (!MemDisp || !DispBuf) return HAL_ERROR;
 
-//Print 8x8 Text on screen
-void LCD_Print(char txtBuf[], size_t len){
+    static uint16_t allRows[DISPLAY_HEIGHT];
+    for (uint16_t i = 0; i < DISPLAY_HEIGHT; i++) allRows[i] = (uint16_t)(i + 1u);
 
-uint16_t strLen = len;
-uint16_t chOff = 0;
+    uint16_t len = 0;
+    HAL_StatusTypeDef st = BuildWriteBurst(allRows, DISPLAY_HEIGHT, &len);
+    if (st != HAL_OK) return st;
 
-for (uint16_t p = 0; p < strLen;p++){
-	// In case of reached 50 chars or newline detected , Do the newline
-	if ((Xcol > LINE_WIDTH) || *txtBuf == 0x0A){
-		Xcol = 1;// Move cursor to most left
-		YLine += 8;// enter new line
-		txtBuf++;// move to next char
-	}
+    return lcd_dma_start(MemDisp, txBuf, len);
+}
 
-	// Avoid printing Newline
-	if (*txtBuf != 0x0A){
+HAL_StatusTypeDef LCD_FlushRows_DMA(Sharp_MIP *MemDisp, const uint16_t *rows, uint16_t rowCount)
+{
+    if (!MemDisp || !DispBuf) return HAL_ERROR;
 
-	chOff = (*txtBuf - 0x20) * 8;// calculate char offset (fist 8 pixel of character)
+    uint16_t len = 0;
+    HAL_StatusTypeDef st = BuildWriteBurst(rows, rowCount, &len);
+    if (st != HAL_OK) return st;
 
-	for(uint8_t i=0;i < 8;i++){// Copy the inverted color px to buffer
-	chBuf[i] = smallRbit(~font8x8_basic[i + chOff]);
-	}
+    return lcd_dma_start(MemDisp, txBuf, len);
+}
 
-	LCD_LoadPart((uint8_t *)chBuf, Xcol, YLine, 1, 8);// Align the char with the 8n pixels
+HAL_StatusTypeDef LCD_FlushDMA_WaitWFI(uint32_t timeout_ms)
+{
+    uint32_t t0 = HAL_GetTick();
+    while (!g_dma_done) {
+        __WFI();
+        if ((HAL_GetTick() - t0) > timeout_ms) return HAL_TIMEOUT;
+    }
+    return HAL_OK;
+}
 
-	txtBuf++;// move to next char
-	Xcol++;// move cursor to next column
-	
-	}
-  }
+/* --------------------------- Buffer ops ----------------------------------- */
+void LCD_LoadFull(const uint8_t *BMP)
+{
+    if (!DispBuf || !BMP) return;
+    memcpy(DispBuf, BMP, BUFFER_LENGTH);
+}
+
+void LCD_BufClean(void)
+{
+    if (!DispBuf) return;
+    memset(DispBuf, 0xFF, BUFFER_LENGTH);
+}
+
+void LCD_Invert(void)
+{
+    if (!DispBuf) return;
+    for (uint32_t i = 0; i < BUFFER_LENGTH; i++) DispBuf[i] = (uint8_t)~DispBuf[i];
+}
+
+/* fill=true -> BLACK, fill=false -> WHITE */
+void LCD_Fill(bool fill)
+{
+    if (!DispBuf) return;
+    memset(DispBuf, fill ? 0x00 : 0xFF, BUFFER_LENGTH);
 }

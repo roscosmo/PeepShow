@@ -50,6 +50,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Core/Src/debug_uart.c
     Core/Src/rtos_isr_bridge.c
+    Core/Src/Sharp_MIP.c
+    Core/Src/font8x8_basic.c
 )
 
 # Add include paths
