@@ -1,31 +1,24 @@
 #include "display_task.h"
 
 #include "LS013B7DH05.h"
+#include "display_renderer.h"
 #include "app_freertos.h"
 #include "main.h"
 
 extern SPI_HandleTypeDef hspi3;
 
 static LS013B7DH05 s_display;
-static uint8_t s_disp_buf[BUFFER_LENGTH] __attribute__((aligned(4)));
-static uint16_t s_dirty_min = 0U;
-static uint16_t s_dirty_max = 0U;
-static uint8_t s_fill_black = 0U;
+static volatile bool s_display_busy = false;
 static uint16_t s_rows[DISPLAY_HEIGHT];
-static void display_mark_all_dirty(void)
-{
-  s_dirty_min = 1U;
-  s_dirty_max = DISPLAY_HEIGHT;
-}
-
+static const uint32_t kDisplayFlagDmaDone = (1UL << 0U);
+static const uint32_t kDisplayFlagDmaError = (1UL << 1U);
+static const uint32_t kDisplayFlushTimeoutMs = 200U;
 static void display_handle_cmd(app_display_cmd_t cmd)
 {
   switch (cmd)
   {
     case APP_DISPLAY_CMD_TOGGLE:
-      s_fill_black = (uint8_t)((s_fill_black == 0U) ? 1U : 0U);
-      LCD_Fill((bool)(s_fill_black != 0U));
-      display_mark_all_dirty();
+      renderInvert();
       break;
     default:
       break;
@@ -34,49 +27,82 @@ static void display_handle_cmd(app_display_cmd_t cmd)
 
 static void display_flush_dirty(void)
 {
-  if ((s_dirty_min == 0U) || (s_dirty_max == 0U))
+  if (s_display_busy)
+  {
+    if (LCD_FlushDMA_IsDone())
+    {
+      s_display_busy = false;
+    }
+    else
+    {
+      return;
+    }
+  }
+
+  uint16_t start_row = 0U;
+  uint16_t end_row = 0U;
+  if (!renderTakeDirtySpan(&start_row, &end_row))
   {
     return;
   }
 
-  HAL_StatusTypeDef st = HAL_ERROR;
-  uint16_t count = 0U;
-  if ((s_dirty_min == 1U) && (s_dirty_max == DISPLAY_HEIGHT))
+  const uint8_t *buf = renderGetBuffer();
+  if (buf == NULL)
   {
-    count = DISPLAY_HEIGHT;
+    renderMarkDirtyRows(start_row, end_row);
+    return;
+  }
+
+  (void)osThreadFlagsClear(kDisplayFlagDmaDone | kDisplayFlagDmaError);
+  s_display_busy = true;
+  HAL_StatusTypeDef st = HAL_ERROR;
+  if ((start_row == 1U) && (end_row == DISPLAY_HEIGHT))
+  {
+    st = LCD_FlushAll_DMA(&s_display, buf);
   }
   else
   {
-    count = (uint16_t)(s_dirty_max - s_dirty_min + 1U);
+    uint16_t count = (uint16_t)(end_row - start_row + 1U);
     for (uint16_t i = 0U; i < count; ++i)
     {
-      s_rows[i] = (uint16_t)(s_dirty_min + i);
+      s_rows[i] = (uint16_t)(start_row + i);
     }
-  }
-
-  s_dirty_min = 0U;
-  s_dirty_max = 0U;
-
-  if (count == DISPLAY_HEIGHT)
-  {
-    st = LCD_FlushAll_DMA(&s_display);
-  }
-  else
-  {
-    st = LCD_FlushRows_DMA(&s_display, s_rows, count);
+    st = LCD_FlushRows_DMA(&s_display, buf, s_rows, count);
   }
 
   if (st != HAL_OK)
   {
+    s_display_busy = false;
+    renderMarkDirtyRows(start_row, end_row);
     return;
   }
 
-  (void)LCD_FlushDMA_WaitWFI(200U);
+  int32_t flags = (int32_t)osThreadFlagsWait(kDisplayFlagDmaDone | kDisplayFlagDmaError,
+                                             osFlagsWaitAny,
+                                             kDisplayFlushTimeoutMs);
+  if (flags < 0)
+  {
+    if (LCD_FlushDMA_IsDone())
+    {
+      s_display_busy = false;
+    }
+    renderMarkDirtyRows(start_row, end_row);
+    return;
+  }
+
+  if (LCD_FlushDMA_IsDone())
+  {
+    s_display_busy = false;
+  }
+  if ((flags & (int32_t)kDisplayFlagDmaError) != 0)
+  {
+    renderMarkDirtyRows(start_row, end_row);
+  }
 }
 
 static void display_init(void)
 {
-  DispBuf = s_disp_buf;
+  renderInit();
 
   /* VLT_LCD is active-low and held low in main; do not change it here. */
 
@@ -86,7 +112,6 @@ static void display_init(void)
     return;
   }
 
-  LCD_Fill(false);
 }
 
 void display_task_run(void)
@@ -108,5 +133,26 @@ void display_task_run(void)
     }
 
     display_flush_dirty();
+  }
+}
+
+bool display_is_busy(void)
+{
+  return s_display_busy;
+}
+
+void LCD_FlushDmaDoneCallback(void)
+{
+  if (tskDisplayHandle != NULL)
+  {
+    (void)osThreadFlagsSet(tskDisplayHandle, kDisplayFlagDmaDone);
+  }
+}
+
+void LCD_FlushDmaErrorCallback(void)
+{
+  if (tskDisplayHandle != NULL)
+  {
+    (void)osThreadFlagsSet(tskDisplayHandle, kDisplayFlagDmaError);
   }
 }

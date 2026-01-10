@@ -54,6 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/LS013B7DH05.c
     Core/Src/font8x8_basic.c
     Core/Src/display_task.c
+    Core/Src/display_renderer.c
 )
 
 # Add include paths

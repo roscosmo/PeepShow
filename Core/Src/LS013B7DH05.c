@@ -1,6 +1,5 @@
 #include "LS013B7DH05.h"
 #include <string.h>
-#include <stdlib.h>
 #include <stdbool.h>
 
 /*
@@ -16,7 +15,7 @@
  *     [DUMMY 0x00]  (extra 8 clocks; total 16 after last line)
  *
  * IMPORTANT CHANGE:
- *   DispBuf is stored in PANEL BYTE ORDER already.
+ *   Buffer is stored in PANEL BYTE ORDER already.
  *   => flush does NOT do rev8() on pixel bytes.
  *
  * SPI:
@@ -51,8 +50,6 @@
 
 static uint8_t txBuf[TXBUF_MAX] SRAM4_BUF_ATTR;
 
-uint8_t *DispBuf = NULL;
-
 static inline void SCS_High(LS013B7DH05 *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_SET); }
 static inline void SCS_Low (LS013B7DH05 *d) { HAL_GPIO_WritePin(d->dispGPIO, d->LCDcs, GPIO_PIN_RESET); }
 
@@ -71,9 +68,10 @@ static HAL_StatusTypeDef spi_tx_chunked(LS013B7DH05 *d, const uint8_t *buf, uint
 
 /* --------------------------- Build write burst ----------------------------- */
 /* rows[] are 1-based gate lines (1..DISPLAY_HEIGHT). */
-static HAL_StatusTypeDef BuildWriteBurst(const uint16_t *rows, uint16_t rowCount, uint16_t *outLen)
+static HAL_StatusTypeDef BuildWriteBurst(const uint8_t *buf, const uint16_t *rows,
+                                         uint16_t rowCount, uint16_t *outLen)
 {
-    if (!outLen || !DispBuf || !rows || rowCount == 0u) return HAL_ERROR;
+    if (!outLen || !buf || !rows || rowCount == 0u) return HAL_ERROR;
     *outLen = 0;
 
     uint32_t needed = 1u + ((uint32_t)rowCount * (1u + LINE_WIDTH + 1u)) + 1u;
@@ -90,8 +88,8 @@ static HAL_StatusTypeDef BuildWriteBurst(const uint16_t *rows, uint16_t rowCount
 
         uint32_t offset = (uint32_t)(r - 1u) * LINE_WIDTH;
 
-        /* NO rev8(): DispBuf is already in panel order */
-        memcpy(&txBuf[w], &DispBuf[offset], LINE_WIDTH);
+        /* NO rev8(): buffer is already in panel order */
+        memcpy(&txBuf[w], &buf[offset], LINE_WIDTH);
         w += LINE_WIDTH;
 
         txBuf[w++] = 0x00u; /* per-line dummy */
@@ -114,23 +112,12 @@ HAL_StatusTypeDef LCD_Init(LS013B7DH05 *MemDisp,
     MemDisp->dispGPIO = dispGPIO;
     MemDisp->LCDcs    = LCDcs;
 
-    if (!DispBuf) {
-        DispBuf = (uint8_t*)malloc(BUFFER_LENGTH);
-        if (!DispBuf) return HAL_ERROR;
-    }
-
-    /* Start white (panel-order) */
-    memset(DispBuf, 0xFF, BUFFER_LENGTH);
-
     return LCD_Clean(MemDisp);
 }
 
 HAL_StatusTypeDef LCD_Clean(LS013B7DH05 *MemDisp)
 {
-    if (!MemDisp || !DispBuf) return HAL_ERROR;
-
-    /* Also reset RAM buffer to white */
-    memset(DispBuf, 0xFF, BUFFER_LENGTH);
+    if (!MemDisp) return HAL_ERROR;
 
     uint8_t clearSeq[2] = { MLCD_CMD_CLEAR, 0x00u };
 
@@ -142,15 +129,15 @@ HAL_StatusTypeDef LCD_Clean(LS013B7DH05 *MemDisp)
 }
 
 /* --------------------------- Public: blocking flush ------------------------ */
-HAL_StatusTypeDef LCD_FlushAll(LS013B7DH05 *MemDisp)
+HAL_StatusTypeDef LCD_FlushAll(LS013B7DH05 *MemDisp, const uint8_t *buf)
 {
-    if (!MemDisp || !DispBuf) return HAL_ERROR;
+    if (!MemDisp || !buf) return HAL_ERROR;
 
     static uint16_t allRows[DISPLAY_HEIGHT];
     for (uint16_t i = 0; i < DISPLAY_HEIGHT; i++) allRows[i] = (uint16_t)(i + 1u);
 
     uint16_t len = 0;
-    HAL_StatusTypeDef st = BuildWriteBurst(allRows, DISPLAY_HEIGHT, &len);
+    HAL_StatusTypeDef st = BuildWriteBurst(buf, allRows, DISPLAY_HEIGHT, &len);
     if (st != HAL_OK) return st;
 
     SCS_High(MemDisp);
@@ -160,12 +147,13 @@ HAL_StatusTypeDef LCD_FlushAll(LS013B7DH05 *MemDisp)
     return st;
 }
 
-HAL_StatusTypeDef LCD_FlushRows(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount)
+HAL_StatusTypeDef LCD_FlushRows(LS013B7DH05 *MemDisp, const uint8_t *buf,
+                                const uint16_t *rows, uint16_t rowCount)
 {
-    if (!MemDisp || !DispBuf) return HAL_ERROR;
+    if (!MemDisp || !buf) return HAL_ERROR;
 
     uint16_t len = 0;
-    HAL_StatusTypeDef st = BuildWriteBurst(rows, rowCount, &len);
+    HAL_StatusTypeDef st = BuildWriteBurst(buf, rows, rowCount, &len);
     if (st != HAL_OK) return st;
 
     SCS_High(MemDisp);
@@ -270,26 +258,27 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     LCD_FlushDmaErrorCallback();
 }
 
-HAL_StatusTypeDef LCD_FlushAll_DMA(LS013B7DH05 *MemDisp)
+HAL_StatusTypeDef LCD_FlushAll_DMA(LS013B7DH05 *MemDisp, const uint8_t *buf)
 {
-    if (!MemDisp || !DispBuf) return HAL_ERROR;
+    if (!MemDisp || !buf) return HAL_ERROR;
 
     static uint16_t allRows[DISPLAY_HEIGHT];
     for (uint16_t i = 0; i < DISPLAY_HEIGHT; i++) allRows[i] = (uint16_t)(i + 1u);
 
     uint16_t len = 0;
-    HAL_StatusTypeDef st = BuildWriteBurst(allRows, DISPLAY_HEIGHT, &len);
+    HAL_StatusTypeDef st = BuildWriteBurst(buf, allRows, DISPLAY_HEIGHT, &len);
     if (st != HAL_OK) return st;
 
     return lcd_dma_start(MemDisp, txBuf, len);
 }
 
-HAL_StatusTypeDef LCD_FlushRows_DMA(LS013B7DH05 *MemDisp, const uint16_t *rows, uint16_t rowCount)
+HAL_StatusTypeDef LCD_FlushRows_DMA(LS013B7DH05 *MemDisp, const uint8_t *buf,
+                                    const uint16_t *rows, uint16_t rowCount)
 {
-    if (!MemDisp || !DispBuf) return HAL_ERROR;
+    if (!MemDisp || !buf) return HAL_ERROR;
 
     uint16_t len = 0;
-    HAL_StatusTypeDef st = BuildWriteBurst(rows, rowCount, &len);
+    HAL_StatusTypeDef st = BuildWriteBurst(buf, rows, rowCount, &len);
     if (st != HAL_OK) return st;
 
     return lcd_dma_start(MemDisp, txBuf, len);
@@ -305,28 +294,3 @@ HAL_StatusTypeDef LCD_FlushDMA_WaitWFI(uint32_t timeout_ms)
     return HAL_OK;
 }
 
-/* --------------------------- Buffer ops ----------------------------------- */
-void LCD_LoadFull(const uint8_t *BMP)
-{
-    if (!DispBuf || !BMP) return;
-    memcpy(DispBuf, BMP, BUFFER_LENGTH);
-}
-
-void LCD_BufClean(void)
-{
-    if (!DispBuf) return;
-    memset(DispBuf, 0xFF, BUFFER_LENGTH);
-}
-
-void LCD_Invert(void)
-{
-    if (!DispBuf) return;
-    for (uint32_t i = 0; i < BUFFER_LENGTH; i++) DispBuf[i] = (uint8_t)~DispBuf[i];
-}
-
-/* fill=true -> BLACK, fill=false -> WHITE */
-void LCD_Fill(bool fill)
-{
-    if (!DispBuf) return;
-    memset(DispBuf, fill ? 0x00 : 0xFF, BUFFER_LENGTH);
-}
