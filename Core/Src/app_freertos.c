@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "debug_uart.h"
 #include "display_task.h"
+#include "ui_task.h"
 
 /* USER CODE END Includes */
 
@@ -377,21 +378,8 @@ void StartTaskDisplay(void *argument)
 void StartTaskUI(void *argument)
 {
   /* USER CODE BEGIN tskUI */
-  app_ui_event_t ui_event = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    if (osMessageQueueGet(qUIEventsHandle, &ui_event, NULL, osWaitForever) == osOK)
-    {
-      g_ui_event_count++;
-      if ((ui_event & (1UL << 8U)) != 0U)
-      {
-        app_display_cmd_t cmd = APP_DISPLAY_CMD_TOGGLE;
-        (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
-      }
-    }
-  }
+  ui_task_run();
   /* USER CODE END tskUI */
 }
 
