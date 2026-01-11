@@ -693,6 +693,7 @@ Implementation notes (Phase 1 display):
 - L8 pixel layout: UI (2 bits), Game (2 bits), BG (1 bit), 2 spare bits, and 1 dirty bit; UI > Game > BG compositing.
 - Renderer supports rotation (default 270 CW) and exposes logical width/height via renderGetWidth/Height.
 - Primitives include pixel, H/V line, rect fill/outline, line, circle, filled circle, and thick line/circle variants.
+- 1bpp sprite blits support LSB-left and MSB-left bit order (fonts use LSB-left; cursor sprite uses MSB-left).
 - tskDisplay builds a non-contiguous row list and flushes via LPDMA using the driver.
 - LS013B7DH05 is transport-only; it receives a buffer pointer for each flush.
 - DMA completion/error signals tskDisplay via thread flags (no polling loops).
@@ -736,18 +737,24 @@ Acceptance:
 
 ---
 
-## Phase 4 — Sensors + I2C Serialization (awake-mode)
+## Phase 4 – Sensors + I2C Serialization (awake-mode)
 Goal: stable I2C behavior, no UI stalls.
 
-- [ ] tskSensor becomes sole I2C owner
-- [ ] Add request model via qSensorReq
-- [ ] Publish latest samples via snapshot (seq/version)
-- [ ] Optional: joystick mapping path integrated
+- [x] tskSensor becomes sole I2C owner
+- [x] Add request model via qSensorReq
+- [x] Publish latest samples via snapshot (seq/version)
+- [x] Optional: joystick mapping path integrated
 
 Acceptance:
 - No I2C contention
 - UI/game remain responsive
 - Sensor reads don’t cause display glitches
+
+Implementation notes (Phase 4 sensors):
+- tskSensor owns TMAG5273 I2C reads and exposes a shared status snapshot for UI polling.
+- Joystick calibration is multi-stage (neutral → up/right/down/left → sweep) to derive center, rotation, invert, span, thresholds, and deadzone.
+- Menu navigation uses TMAGJoy_MenuPoll to emit L/R events in UI mode.
+- Joy Target page adjusts abs deadzone with L/R; Joy Cursor page visualizes calibrated cursor motion only.
 
 ---
 
