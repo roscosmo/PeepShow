@@ -44,7 +44,7 @@ static const float kAudioToneHz = 440.0f;
 static const float kAudioClickHz = 2000.0f;
 static const uint32_t kAudioClickMs = 25U;
 static const uint8_t kAudioVolumeMax = 10U;
-static const uint8_t kAudioVolumeDefault = 5U;
+static const uint8_t kAudioVolumeDefault = 7U;
 
 static int16_t s_audio_buf[2048];
 static uint32_t s_phase_q16 = 0U;
@@ -247,7 +247,7 @@ static int16_t audio_wav_sample(const wav_info_t *wav, uint32_t frame)
 static int16_t audio_apply_volume(int32_t sample)
 {
   int32_t level = (int32_t)s_audio_volume;
-  int32_t scaled = (sample * (level * 2)) / (int32_t)kAudioVolumeMax;
+  int32_t scaled = (sample * (level * 5)) / (int32_t)kAudioVolumeMax;
 
   if (scaled > 32767)
   {
