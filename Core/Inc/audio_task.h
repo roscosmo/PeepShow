@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 void audio_task_run(void);
+void audio_set_volume(uint8_t level);
+uint8_t audio_get_volume(void);
 
 #ifdef __cplusplus
 }

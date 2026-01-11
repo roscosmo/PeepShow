@@ -43,6 +43,8 @@ static const uint32_t kAudioSampleRate = 16000U;
 static const float kAudioToneHz = 440.0f;
 static const float kAudioClickHz = 2000.0f;
 static const uint32_t kAudioClickMs = 25U;
+static const uint8_t kAudioVolumeMax = 10U;
+static const uint8_t kAudioVolumeDefault = 5U;
 
 static int16_t s_audio_buf[2048];
 static uint32_t s_phase_q16 = 0U;
@@ -56,6 +58,7 @@ static wav_info_t s_click_wav;
 static uint8_t s_wav_state = 0U;
 static uint32_t s_wav_pos_q16 = 0U;
 static uint32_t s_wav_step_q16 = 0U;
+static volatile uint8_t s_audio_volume = kAudioVolumeDefault;
 
 static uint16_t audio_read_u16_le(const uint8_t *data)
 {
@@ -241,6 +244,23 @@ static int16_t audio_wav_sample(const wav_info_t *wav, uint32_t frame)
   return (int16_t)(((int32_t)l + (int32_t)r) / 2);
 }
 
+static int16_t audio_apply_volume(int32_t sample)
+{
+  int32_t level = (int32_t)s_audio_volume;
+  int32_t scaled = (sample * (level * 2)) / (int32_t)kAudioVolumeMax;
+
+  if (scaled > 32767)
+  {
+    return 32767;
+  }
+  if (scaled < -32768)
+  {
+    return -32768;
+  }
+
+  return (int16_t)scaled;
+}
+
 static void audio_fill(int16_t *dst, uint32_t count)
 {
   if ((dst == NULL) || (count == 0U))
@@ -272,6 +292,7 @@ static void audio_fill(int16_t *dst, uint32_t count)
       }
 
       int16_t pcm = audio_wav_sample(&s_click_wav, frame);
+      pcm = audio_apply_volume((int32_t)pcm);
       dst[i * 2U] = pcm;
       dst[i * 2U + 1U] = pcm;
       s_wav_pos_q16 += s_wav_step_q16;
@@ -294,6 +315,7 @@ static void audio_fill(int16_t *dst, uint32_t count)
       float phase = (float)(s_phase_q16 & 0xFFFFU) / 65536.0f;
       float sample = sinf(two_pi * phase);
       int16_t pcm = (int16_t)(sample * 20000.0f);
+      pcm = audio_apply_volume((int32_t)pcm);
       dst[i * 2U] = pcm;
       dst[i * 2U + 1U] = pcm;
       s_phase_q16 += s_phase_step_q16;
@@ -509,4 +531,19 @@ void HAL_SAI_ErrorCallback(SAI_HandleTypeDef *hsai)
   {
     (void)osThreadFlagsSet(tskAudioHandle, kAudioFlagError);
   }
+}
+
+void audio_set_volume(uint8_t level)
+{
+  if (level > kAudioVolumeMax)
+  {
+    level = kAudioVolumeMax;
+  }
+
+  s_audio_volume = level;
+}
+
+uint8_t audio_get_volume(void)
+{
+  return s_audio_volume;
 }

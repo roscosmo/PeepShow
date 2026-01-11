@@ -1,6 +1,7 @@
 #include "ui_router.h"
 
 #include "app_freertos.h"
+#include "audio_task.h"
 #include "display_renderer.h"
 #include "font8x8_basic.h"
 #include "sensor_task.h"
@@ -21,7 +22,7 @@ static const ui_menu_item_t k_menu_items[] =
   { "Joy Target", UI_ROUTER_CMD_OPEN_JOY_TARGET },
   { "Joy Cursor", UI_ROUTER_CMD_OPEN_JOY_CURSOR },
   { "Render Demo", UI_ROUTER_CMD_START_RENDER_DEMO },
-  { "Keyclick", UI_ROUTER_CMD_TOGGLE_KEYCLICK }
+  { "Sound Settings", UI_ROUTER_CMD_OPEN_SOUND }
 };
 
 static const uint8_t k_menu_item_count = (uint8_t)(sizeof(k_menu_items) / sizeof(k_menu_items[0]));
@@ -91,13 +92,6 @@ static void ui_render_menu(uint16_t width, uint16_t height)
   for (uint8_t i = 0U; i < k_menu_item_count; ++i)
   {
     const char *label = k_menu_items[i].label;
-    char local_label[24];
-    if (k_menu_items[i].cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK)
-    {
-      const char *state = s_keyclick_enabled ? "ON" : "OFF";
-      (void)snprintf(local_label, sizeof(local_label), "%s: %s", label, state);
-      label = local_label;
-    }
     bool selected = (i == s_ui.menu_index);
     if (selected)
     {
@@ -127,6 +121,32 @@ static void ui_render_menu(uint16_t width, uint16_t height)
     uint16_t hint_y = (uint16_t)(height - (FONT8X8_HEIGHT + 2U));
     renderDrawText(4U, hint_y, "A: ENTER  B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
   }
+}
+
+static void ui_render_sound(uint16_t width, uint16_t height)
+{
+  renderFill(false);
+  renderDrawText(4U, 4U, "SOUND SETTINGS", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  uint8_t volume = audio_get_volume();
+  char buf[24];
+  (void)snprintf(buf, sizeof(buf), "VOLUME: %u/10", (unsigned)volume);
+  renderDrawText(4U, 20U, buf, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  const char *kc = s_keyclick_enabled ? "ON" : "OFF";
+  (void)snprintf(buf, sizeof(buf), "KEYCLICK: %s", kc);
+  renderDrawText(4U, (uint16_t)(20U + FONT8X8_HEIGHT + 4U),
+                 buf, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
+  {
+    uint16_t hint_y = (uint16_t)(height - (FONT8X8_HEIGHT * 2U + 4U));
+    renderDrawText(4U, hint_y, "L/R: LEVEL  A: TOGGLE", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
+                   "B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+  }
+
+  (void)width;
 }
 
 static void ui_render_joy_cal(uint16_t width, uint16_t height)
@@ -398,10 +418,6 @@ bool ui_router_handle_button(uint32_t button_id, ui_router_cmd_t *out_cmd)
       {
         *out_cmd = k_menu_items[s_ui.menu_index].cmd;
       }
-      if ((out_cmd != NULL) && (*out_cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK))
-      {
-        s_keyclick_enabled = !s_keyclick_enabled;
-      }
     }
     else if (button_id == (uint32_t)APP_BUTTON_L)
     {
@@ -455,6 +471,9 @@ void ui_router_render(void)
     case UI_PAGE_JOY_CURSOR:
       ui_render_joy_cursor(width, height);
       break;
+    case UI_PAGE_SOUND:
+      ui_render_sound(width, height);
+      break;
     default:
       ui_render_menu(width, height);
       break;
@@ -470,4 +489,9 @@ void ui_router_set_joy_cursor(uint16_t x, uint16_t y)
 bool ui_router_get_keyclick(void)
 {
   return s_keyclick_enabled;
+}
+
+void ui_router_set_keyclick(bool enable)
+{
+  s_keyclick_enabled = enable;
 }

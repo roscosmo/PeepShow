@@ -1,6 +1,7 @@
 #include "ui_task.h"
 
 #include "app_freertos.h"
+#include "audio_task.h"
 #include "cmsis_os2.h"
 #include "display_renderer.h"
 #include "render_demo.h"
@@ -49,7 +50,7 @@ static void ui_update_sensor_mode(ui_page_t page)
 {
   app_sensor_req_t req = 0U;
 
-  if (page == UI_PAGE_MENU)
+  if ((page == UI_PAGE_MENU) || (page == UI_PAGE_SOUND))
   {
     req |= APP_SENSOR_REQ_JOY_MENU_ON;
     req |= APP_SENSOR_REQ_JOY_MONITOR_OFF;
@@ -342,6 +343,37 @@ void ui_task_run(void)
           ui_send_display_invalidate();
         }
       }
+      else if (page_now == UI_PAGE_SOUND)
+      {
+        if (button_id == (uint32_t)APP_BUTTON_B)
+        {
+          ui_router_set_page(UI_PAGE_MENU);
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+        else if ((button_id == (uint32_t)APP_BUTTON_L) ||
+                 (button_id == (uint32_t)APP_BUTTON_R))
+        {
+          uint8_t volume = audio_get_volume();
+          if ((button_id == (uint32_t)APP_BUTTON_L) && (volume > 0U))
+          {
+            volume--;
+          }
+          else if ((button_id == (uint32_t)APP_BUTTON_R) && (volume < 10U))
+          {
+            volume++;
+          }
+          audio_set_volume(volume);
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+        else if (button_id == (uint32_t)APP_BUTTON_A)
+        {
+          ui_router_set_keyclick(!ui_router_get_keyclick());
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+      }
       else
       {
         ui_router_cmd_t cmd = UI_ROUTER_CMD_NONE;
@@ -384,6 +416,12 @@ void ui_task_run(void)
           ui_router_render();
           ui_send_display_invalidate();
           have_joy_status = false;
+        }
+        else if (cmd == UI_ROUTER_CMD_OPEN_SOUND)
+        {
+          ui_router_set_page(UI_PAGE_SOUND);
+          ui_router_render();
+          ui_send_display_invalidate();
         }
         else if (cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK)
         {
