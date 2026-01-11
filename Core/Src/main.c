@@ -149,6 +149,7 @@ int main(void)
   HAL_GPIO_WritePin(VLT_LCD_GPIO_Port, VLT_LCD_Pin, GPIO_PIN_RESET);
 
   
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */

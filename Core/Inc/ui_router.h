@@ -23,7 +23,8 @@ typedef enum
   UI_ROUTER_CMD_START_RENDER_DEMO = 1,
   UI_ROUTER_CMD_OPEN_JOY_CAL = 2,
   UI_ROUTER_CMD_OPEN_JOY_TARGET = 3,
-  UI_ROUTER_CMD_OPEN_JOY_CURSOR = 4
+  UI_ROUTER_CMD_OPEN_JOY_CURSOR = 4,
+  UI_ROUTER_CMD_TOGGLE_KEYCLICK = 5
 } ui_router_cmd_t;
 
 void ui_router_init(void);
@@ -32,6 +33,7 @@ void ui_router_set_page(ui_page_t page);
 bool ui_router_handle_button(uint32_t button_id, ui_router_cmd_t *out_cmd);
 void ui_router_render(void);
 void ui_router_set_joy_cursor(uint16_t x, uint16_t y);
+bool ui_router_get_keyclick(void);
 
 #ifdef __cplusplus
 }

@@ -27,6 +27,7 @@
 #include "ui_task.h"
 #include "game_task.h"
 #include "sensor_task.h"
+#include "audio_task.h"
 
 /* USER CODE END Includes */
 
@@ -515,13 +516,8 @@ void StartTaskGame(void *argument)
 void StartTaskAudio(void *argument)
 {
   /* USER CODE BEGIN tskAudio */
-  app_audio_cmd_t cmd = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    (void)osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, osWaitForever);
-  }
+  audio_task_run();
   /* USER CODE END tskAudio */
 }
 

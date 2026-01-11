@@ -256,8 +256,8 @@ void ui_task_run(void)
       }
     }
 
-    if (pressed && (button_id == (uint32_t)APP_BUTTON_BOOT))
-    {
+  if (pressed && (button_id == (uint32_t)APP_BUTTON_BOOT))
+  {
       if ((mode_flags & APP_MODE_GAME) != 0U)
       {
         resume_demo = (render_demo_get_mode() == RENDER_DEMO_MODE_RUN);
@@ -283,12 +283,18 @@ void ui_task_run(void)
           resume_demo = false;
         }
       }
-    }
-    else if (pressed && ((mode_flags & APP_MODE_GAME) == 0U))
+  }
+  else if (pressed && ((mode_flags & APP_MODE_GAME) == 0U))
+  {
+    if (ui_router_get_keyclick())
     {
-      ui_page_t page_now = ui_router_get_page();
-      if (page_now == UI_PAGE_JOY_CAL)
-      {
+      app_audio_cmd_t audio_cmd = APP_AUDIO_CMD_KEYCLICK;
+      (void)osMessageQueuePut(qAudioCmdHandle, &audio_cmd, 0U, 0U);
+    }
+
+    ui_page_t page_now = ui_router_get_page();
+    if (page_now == UI_PAGE_JOY_CAL)
+    {
         if (button_id == (uint32_t)APP_BUTTON_B)
         {
           ui_send_sensor_req(APP_SENSOR_REQ_JOY_CAL_SAVE);
@@ -378,6 +384,11 @@ void ui_task_run(void)
           ui_router_render();
           ui_send_display_invalidate();
           have_joy_status = false;
+        }
+        else if (cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK)
+        {
+          ui_router_render();
+          ui_send_display_invalidate();
         }
         else if (changed)
         {

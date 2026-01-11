@@ -20,7 +20,8 @@ static const ui_menu_item_t k_menu_items[] =
   { "Joystick Cal", UI_ROUTER_CMD_OPEN_JOY_CAL },
   { "Joy Target", UI_ROUTER_CMD_OPEN_JOY_TARGET },
   { "Joy Cursor", UI_ROUTER_CMD_OPEN_JOY_CURSOR },
-  { "Render Demo", UI_ROUTER_CMD_START_RENDER_DEMO }
+  { "Render Demo", UI_ROUTER_CMD_START_RENDER_DEMO },
+  { "Keyclick", UI_ROUTER_CMD_TOGGLE_KEYCLICK }
 };
 
 static const uint8_t k_menu_item_count = (uint8_t)(sizeof(k_menu_items) / sizeof(k_menu_items[0]));
@@ -39,6 +40,7 @@ static ui_router_state_t s_ui =
 
 static uint16_t s_joy_cursor_x = 0U;
 static uint16_t s_joy_cursor_y = 0U;
+static bool s_keyclick_enabled = true;
 
 static const uint16_t k_cursor_sprite_w = 32U;
 static const uint16_t k_cursor_sprite_h = 32U;
@@ -89,6 +91,13 @@ static void ui_render_menu(uint16_t width, uint16_t height)
   for (uint8_t i = 0U; i < k_menu_item_count; ++i)
   {
     const char *label = k_menu_items[i].label;
+    char local_label[24];
+    if (k_menu_items[i].cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK)
+    {
+      const char *state = s_keyclick_enabled ? "ON" : "OFF";
+      (void)snprintf(local_label, sizeof(local_label), "%s: %s", label, state);
+      label = local_label;
+    }
     bool selected = (i == s_ui.menu_index);
     if (selected)
     {
@@ -389,6 +398,10 @@ bool ui_router_handle_button(uint32_t button_id, ui_router_cmd_t *out_cmd)
       {
         *out_cmd = k_menu_items[s_ui.menu_index].cmd;
       }
+      if ((out_cmd != NULL) && (*out_cmd == UI_ROUTER_CMD_TOGGLE_KEYCLICK))
+      {
+        s_keyclick_enabled = !s_keyclick_enabled;
+      }
     }
     else if (button_id == (uint32_t)APP_BUTTON_L)
     {
@@ -452,4 +465,9 @@ void ui_router_set_joy_cursor(uint16_t x, uint16_t y)
 {
   s_joy_cursor_x = x;
   s_joy_cursor_y = y;
+}
+
+bool ui_router_get_keyclick(void)
+{
+  return s_keyclick_enabled;
 }
