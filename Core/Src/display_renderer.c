@@ -1053,3 +1053,31 @@ void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, con
     }
   }
 }
+
+void renderBlit1bppMsb(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
+                       uint16_t stride_bytes, render_layer_t layer, render_state_t fg)
+{
+  if ((data == NULL) || (width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  if (stride_bytes == 0U)
+  {
+    stride_bytes = (uint16_t)((width + 7U) / 8U);
+  }
+
+  /* Sprite data is MSB-left; bit7 is the leftmost pixel in each byte. */
+  for (uint16_t row = 0U; row < height; ++row)
+  {
+    const uint8_t *row_ptr = &data[row * stride_bytes];
+    for (uint16_t col = 0U; col < width; ++col)
+    {
+      uint8_t byte = row_ptr[col >> 3U];
+      if ((byte & (uint8_t)(0x80U >> (col & 7U))) != 0U)
+      {
+        renderSetPixel((uint16_t)(x + col), (uint16_t)(y + row), layer, fg);
+      }
+    }
+  }
+}

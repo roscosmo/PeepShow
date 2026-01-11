@@ -19,6 +19,7 @@ static const ui_menu_item_t k_menu_items[] =
 {
   { "Joystick Cal", UI_ROUTER_CMD_OPEN_JOY_CAL },
   { "Joy Target", UI_ROUTER_CMD_OPEN_JOY_TARGET },
+  { "Joy Cursor", UI_ROUTER_CMD_OPEN_JOY_CURSOR },
   { "Render Demo", UI_ROUTER_CMD_START_RENDER_DEMO }
 };
 
@@ -34,6 +35,23 @@ static ui_router_state_t s_ui =
 {
   .page = UI_PAGE_MENU,
   .menu_index = 0U
+};
+
+static uint16_t s_joy_cursor_x = 0U;
+static uint16_t s_joy_cursor_y = 0U;
+
+static const uint16_t k_cursor_sprite_w = 32U;
+static const uint16_t k_cursor_sprite_h = 32U;
+static const uint8_t k_cursor_sprite[] =
+{
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x8F, 0xC3, 0x80, 0x01, 0xE2, 0xF3, 0x80,
+  0x01, 0xED, 0x3C, 0xC0, 0x01, 0xDF, 0x38, 0xC0, 0x00, 0x84, 0xF8, 0x80, 0x00, 0xDF, 0xFE, 0x80,
+  0x00, 0xFF, 0xFF, 0x00, 0x01, 0xBF, 0xFF, 0x00, 0x02, 0x00, 0x3F, 0x80, 0x06, 0x7F, 0xDF, 0xC0,
+  0x0F, 0xFF, 0xFF, 0xE0, 0x03, 0xC2, 0xE7, 0xC0, 0x03, 0xB3, 0xB3, 0x80, 0x03, 0xF3, 0xF8, 0x80,
+  0x07, 0xE1, 0xFC, 0xFC, 0x36, 0xC8, 0xFC, 0xFC, 0x3E, 0x08, 0x31, 0xCC, 0x1B, 0x00, 0x07, 0xE4,
+  0x09, 0xC0, 0x1F, 0x76, 0x07, 0xFF, 0xFB, 0x9C, 0x03, 0xFF, 0xFD, 0xDC, 0x01, 0x9F, 0x9D, 0xEC,
+  0x01, 0xFF, 0xBF, 0xF8, 0x01, 0xFB, 0xFB, 0xB0, 0x01, 0xFB, 0xFF, 0xE0, 0x00, 0xFF, 0xFF, 0xC0,
+  0x00, 0xFF, 0xFE, 0x00, 0x00, 0x6F, 0xCC, 0x00, 0x00, 0x7C, 0xFC, 0x00, 0x00, 0x10, 0x30, 0x00
 };
 
 static uint16_t ui_text_width(const char *text)
@@ -104,64 +122,93 @@ static void ui_render_menu(uint16_t width, uint16_t height)
 
 static void ui_render_joy_cal(uint16_t width, uint16_t height)
 {
-  (void)width;
-
   sensor_joy_status_t status;
   sensor_joy_get_status(&status);
 
   renderFill(false);
   renderDrawText(4U, 4U, "JOYSTICK CAL", RENDER_LAYER_UI, RENDER_STATE_BLACK);
 
-  uint16_t y = 18U;
-  const char *neutral_text = "NEUTRAL: PENDING";
-  const char *extents_text = "EXTENTS: PENDING";
+  const char *line1 = NULL;
+  const char *line2 = NULL;
 
-  if (status.stage == SENSOR_JOY_STAGE_NEUTRAL)
+  switch (status.stage)
   {
-    neutral_text = "NEUTRAL: CAL";
-  }
-  else if (status.neutral_done != 0U)
-  {
-    neutral_text = "NEUTRAL: OK";
+    case SENSOR_JOY_STAGE_IDLE:
+      line1 = "A: START CAL";
+      line2 = "B: BACK";
+      break;
+    case SENSOR_JOY_STAGE_NEUTRAL:
+      line1 = "HOLD NEUTRAL";
+      line2 = "MEASURING...";
+      break;
+    case SENSOR_JOY_STAGE_UP:
+      line1 = "HOLD UP";
+      line2 = "KEEP STEADY";
+      break;
+    case SENSOR_JOY_STAGE_RIGHT:
+      line1 = "HOLD RIGHT";
+      line2 = "KEEP STEADY";
+      break;
+    case SENSOR_JOY_STAGE_DOWN:
+      line1 = "HOLD DOWN";
+      line2 = "KEEP STEADY";
+      break;
+    case SENSOR_JOY_STAGE_LEFT:
+      line1 = "HOLD LEFT";
+      line2 = "KEEP STEADY";
+      break;
+    case SENSOR_JOY_STAGE_SWEEP:
+      line1 = "SWEEP FULL RANGE";
+      line2 = "BIG CIRCLES";
+      break;
+    case SENSOR_JOY_STAGE_DONE:
+    default:
+      line1 = "CAL DONE";
+      line2 = "B: BACK";
+      break;
   }
 
-  if (status.stage == SENSOR_JOY_STAGE_EXTENTS)
+  uint16_t y = 20U;
+  if (line1 != NULL)
   {
-    extents_text = "EXTENTS: CAL";
+    renderDrawText(4U, y, line1, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    y = (uint16_t)(y + (FONT8X8_HEIGHT + 4U));
   }
-  else if (status.extents_done != 0U)
+  if (line2 != NULL)
   {
-    extents_text = "EXTENTS: OK";
+    renderDrawText(4U, y, line2, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    y = (uint16_t)(y + (FONT8X8_HEIGHT + 6U));
   }
 
-  renderDrawText(4U, y, neutral_text, RENDER_LAYER_UI, RENDER_STATE_BLACK);
-  y = (uint16_t)(y + (FONT8X8_HEIGHT + 2U));
-  renderDrawText(4U, y, extents_text, RENDER_LAYER_UI, RENDER_STATE_BLACK);
-  y = (uint16_t)(y + (FONT8X8_HEIGHT + 2U));
-
-  if ((status.stage == SENSOR_JOY_STAGE_NEUTRAL) ||
-      (status.stage == SENSOR_JOY_STAGE_EXTENTS))
+  if ((status.stage != SENSOR_JOY_STAGE_IDLE) && (status.stage != SENSOR_JOY_STAGE_DONE))
   {
-    uint32_t pct = (uint32_t)(status.progress * 100.0f + 0.5f);
-    if (pct > 100U)
+    float p01 = status.progress;
+    if (p01 < 0.0f)
     {
-      pct = 100U;
+      p01 = 0.0f;
     }
-    char buf[32];
-    (void)snprintf(buf, sizeof(buf), "PROGRESS: %lu%%", (unsigned long)pct);
-    renderDrawText(4U, y, buf, RENDER_LAYER_UI, RENDER_STATE_BLACK);
-  }
-  else if (status.extents_done != 0U)
-  {
-    renderDrawText(4U, y, "B: SAVE & EXIT", RENDER_LAYER_UI, RENDER_STATE_BLACK);
-  }
-  else if (status.neutral_done != 0U)
-  {
-    renderDrawText(4U, y, "A: START EXTENTS", RENDER_LAYER_UI, RENDER_STATE_BLACK);
-  }
-  else
-  {
-    renderDrawText(4U, y, "A: START NEUTRAL", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    if (p01 > 1.0f)
+    {
+      p01 = 1.0f;
+    }
+
+    uint16_t bar_x = (width > 40U) ? 20U : 2U;
+    uint16_t bar_w = (width > 40U) ? (uint16_t)(width - 40U) : (uint16_t)(width - 4U);
+    uint16_t bar_h = 10U;
+
+    if (bar_w < 12U)
+    {
+      bar_w = 12U;
+    }
+
+    renderDrawRect(bar_x, y, bar_w, bar_h, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    uint16_t fill = (uint16_t)((float)(bar_w - 2U) * p01);
+    if (fill > 0U)
+    {
+      renderFillRect((uint16_t)(bar_x + 1U), (uint16_t)(y + 1U),
+                     fill, (uint16_t)(bar_h - 2U),
+                     RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    }
   }
 
   if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
@@ -289,10 +336,29 @@ static void ui_render_joy_target(uint16_t width, uint16_t height)
                  RENDER_LAYER_UI, RENDER_STATE_BLACK);
 }
 
+static void ui_render_joy_cursor(uint16_t width, uint16_t height)
+{
+  renderFill(false);
+  renderDrawRect(0U, 0U, width, height, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+  renderDrawText(4U, 4U, "JOY CURSOR", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+  if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
+  {
+    uint16_t hint_y = (uint16_t)(height - (FONT8X8_HEIGHT + 2U));
+    renderDrawText(4U, hint_y, "B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+  }
+
+  renderBlit1bppMsb(s_joy_cursor_x, s_joy_cursor_y,
+                    k_cursor_sprite_w, k_cursor_sprite_h,
+                    k_cursor_sprite, 0U,
+                    RENDER_LAYER_GAME, RENDER_STATE_BLACK);
+}
+
 void ui_router_init(void)
 {
   s_ui.page = UI_PAGE_MENU;
   s_ui.menu_index = 0U;
+  s_joy_cursor_x = 0U;
+  s_joy_cursor_y = 0U;
 }
 
 ui_page_t ui_router_get_page(void)
@@ -373,8 +439,17 @@ void ui_router_render(void)
     case UI_PAGE_JOY_TARGET:
       ui_render_joy_target(width, height);
       break;
+    case UI_PAGE_JOY_CURSOR:
+      ui_render_joy_cursor(width, height);
+      break;
     default:
       ui_render_menu(width, height);
       break;
   }
+}
+
+void ui_router_set_joy_cursor(uint16_t x, uint16_t y)
+{
+  s_joy_cursor_x = x;
+  s_joy_cursor_y = y;
 }

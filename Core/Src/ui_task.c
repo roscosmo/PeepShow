@@ -2,10 +2,12 @@
 
 #include "app_freertos.h"
 #include "cmsis_os2.h"
+#include "display_renderer.h"
 #include "render_demo.h"
 #include "sensor_task.h"
 #include "ui_router.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -52,7 +54,7 @@ static void ui_update_sensor_mode(ui_page_t page)
     req |= APP_SENSOR_REQ_JOY_MENU_ON;
     req |= APP_SENSOR_REQ_JOY_MONITOR_OFF;
   }
-  else if (page == UI_PAGE_JOY_TARGET)
+  else if ((page == UI_PAGE_JOY_TARGET) || (page == UI_PAGE_JOY_CURSOR))
   {
     req |= APP_SENSOR_REQ_JOY_MENU_OFF;
     req |= APP_SENSOR_REQ_JOY_MONITOR_ON;
@@ -84,6 +86,129 @@ static bool ui_joy_status_changed(sensor_joy_status_t *last_status, bool *has_la
   return false;
 }
 
+typedef struct
+{
+  float x;
+  float y;
+  uint16_t draw_x;
+  uint16_t draw_y;
+  uint32_t last_ms;
+} ui_cursor_state_t;
+
+static ui_cursor_state_t s_cursor;
+static const float kCursorSpeedPxPerS = 120.0f;
+static const uint16_t kCursorSpriteW = 32U;
+static const uint16_t kCursorSpriteH = 32U;
+
+static void ui_cursor_enter(void)
+{
+  uint16_t width = renderGetWidth();
+  uint16_t height = renderGetHeight();
+  float start_x = 0.0f;
+  float start_y = 0.0f;
+
+  if (width > kCursorSpriteW)
+  {
+    start_x = (float)((width - kCursorSpriteW) / 2U);
+  }
+  if (height > kCursorSpriteH)
+  {
+    start_y = (float)((height - kCursorSpriteH) / 2U);
+  }
+
+  s_cursor.x = start_x;
+  s_cursor.y = start_y;
+  s_cursor.draw_x = (uint16_t)(start_x + 0.5f);
+  s_cursor.draw_y = (uint16_t)(start_y + 0.5f);
+  s_cursor.last_ms = 0U;
+  ui_router_set_joy_cursor(s_cursor.draw_x, s_cursor.draw_y);
+}
+
+static bool ui_cursor_update(const sensor_joy_status_t *status, uint32_t now_ms)
+{
+  if (status == NULL)
+  {
+    return false;
+  }
+
+  uint16_t width = renderGetWidth();
+  uint16_t height = renderGetHeight();
+  if ((width == 0U) || (height == 0U))
+  {
+    return false;
+  }
+
+  uint32_t prev_ms = s_cursor.last_ms;
+  if (prev_ms == 0U)
+  {
+    prev_ms = now_ms;
+  }
+  s_cursor.last_ms = now_ms;
+
+  float dt_s = (float)(now_ms - prev_ms) * (1.0f / 1000.0f);
+  if (dt_s <= 0.0f)
+  {
+    return false;
+  }
+
+  float min_span = (status->sx_mT < status->sy_mT) ? status->sx_mT : status->sy_mT;
+  if (min_span < 1e-3f)
+  {
+    min_span = 1.0f;
+  }
+
+  float speed_norm = status->r_abs_mT / min_span;
+  if (speed_norm > 1.0f)
+  {
+    speed_norm = 1.0f;
+  }
+  if ((status->deadzone_en != 0U) && (status->r_abs_mT < status->deadzone_mT))
+  {
+    speed_norm = 0.0f;
+  }
+
+  float mag = sqrtf(status->nx * status->nx + status->ny * status->ny);
+  float dirx = (mag > 1e-6f) ? (status->nx / mag) : 0.0f;
+  float diry = (mag > 1e-6f) ? (status->ny / mag) : 0.0f;
+
+  float fx = s_cursor.x + dirx * speed_norm * kCursorSpeedPxPerS * dt_s;
+  float fy = s_cursor.y - diry * speed_norm * kCursorSpeedPxPerS * dt_s;
+
+  float max_x = (width > kCursorSpriteW) ? (float)(width - kCursorSpriteW) : 0.0f;
+  float max_y = (height > kCursorSpriteH) ? (float)(height - kCursorSpriteH) : 0.0f;
+  if (fx < 0.0f)
+  {
+    fx = 0.0f;
+  }
+  else if (fx > max_x)
+  {
+    fx = max_x;
+  }
+  if (fy < 0.0f)
+  {
+    fy = 0.0f;
+  }
+  else if (fy > max_y)
+  {
+    fy = max_y;
+  }
+
+  s_cursor.x = fx;
+  s_cursor.y = fy;
+
+  uint16_t draw_x = (uint16_t)(fx + 0.5f);
+  uint16_t draw_y = (uint16_t)(fy + 0.5f);
+  if ((draw_x != s_cursor.draw_x) || (draw_y != s_cursor.draw_y))
+  {
+    s_cursor.draw_x = draw_x;
+    s_cursor.draw_y = draw_y;
+    ui_router_set_joy_cursor(draw_x, draw_y);
+    return true;
+  }
+
+  return false;
+}
+
 void ui_task_run(void)
 {
   app_ui_event_t ui_event = 0U;
@@ -101,7 +226,8 @@ void ui_task_run(void)
   {
     ui_page_t page_before = ui_router_get_page();
     uint32_t timeout = osWaitForever;
-    if ((page_before == UI_PAGE_JOY_CAL) || (page_before == UI_PAGE_JOY_TARGET))
+    if ((page_before == UI_PAGE_JOY_CAL) || (page_before == UI_PAGE_JOY_TARGET) ||
+        (page_before == UI_PAGE_JOY_CURSOR))
     {
       timeout = 100U;
     }
@@ -174,13 +300,10 @@ void ui_task_run(void)
         {
           sensor_joy_status_t status_now;
           sensor_joy_get_status(&status_now);
-          if (status_now.neutral_done == 0U)
+          if ((status_now.stage == SENSOR_JOY_STAGE_IDLE) ||
+              (status_now.stage == SENSOR_JOY_STAGE_DONE))
           {
             ui_send_sensor_req(APP_SENSOR_REQ_JOY_CAL_NEUTRAL);
-          }
-          else if (status_now.extents_done == 0U)
-          {
-            ui_send_sensor_req(APP_SENSOR_REQ_JOY_CAL_EXTENTS);
           }
 
           ui_router_render();
@@ -202,6 +325,15 @@ void ui_task_run(void)
         else if (button_id == (uint32_t)APP_BUTTON_R)
         {
           ui_send_sensor_req(APP_SENSOR_REQ_JOY_DZ_INC);
+        }
+      }
+      else if (page_now == UI_PAGE_JOY_CURSOR)
+      {
+        if (button_id == (uint32_t)APP_BUTTON_B)
+        {
+          ui_router_set_page(UI_PAGE_MENU);
+          ui_router_render();
+          ui_send_display_invalidate();
         }
       }
       else
@@ -239,6 +371,14 @@ void ui_task_run(void)
           ui_send_display_invalidate();
           have_joy_status = false;
         }
+        else if (cmd == UI_ROUTER_CMD_OPEN_JOY_CURSOR)
+        {
+          ui_router_set_page(UI_PAGE_JOY_CURSOR);
+          ui_cursor_enter();
+          ui_router_render();
+          ui_send_display_invalidate();
+          have_joy_status = false;
+        }
         else if (changed)
         {
           ui_router_render();
@@ -267,6 +407,19 @@ void ui_task_run(void)
       else
       {
         have_joy_status = false;
+      }
+    }
+    else if (page_after == UI_PAGE_JOY_CURSOR)
+    {
+      if ((mode_flags & APP_MODE_GAME) == 0U)
+      {
+        sensor_joy_status_t status_now;
+        sensor_joy_get_status(&status_now);
+        if (ui_cursor_update(&status_now, osKernelGetTickCount()))
+        {
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
       }
     }
   }

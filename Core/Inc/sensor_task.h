@@ -12,15 +12,17 @@ typedef enum
 {
   SENSOR_JOY_STAGE_IDLE = 0,
   SENSOR_JOY_STAGE_NEUTRAL = 1,
-  SENSOR_JOY_STAGE_EXTENTS = 2,
-  SENSOR_JOY_STAGE_DONE = 3
+  SENSOR_JOY_STAGE_UP = 2,
+  SENSOR_JOY_STAGE_RIGHT = 3,
+  SENSOR_JOY_STAGE_DOWN = 4,
+  SENSOR_JOY_STAGE_LEFT = 5,
+  SENSOR_JOY_STAGE_SWEEP = 6,
+  SENSOR_JOY_STAGE_DONE = 7
 } sensor_joy_stage_t;
 
 typedef struct
 {
   sensor_joy_stage_t stage;
-  uint8_t neutral_done;
-  uint8_t extents_done;
   float progress;
   TMAGJoy_Dir dir;
   float nx;

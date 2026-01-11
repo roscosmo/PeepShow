@@ -143,7 +143,7 @@ int main(void)
   __HAL_RCC_SRAM4_CLK_ENABLE();
 
   // Initalise the PMIC
-  // ADP5360_init();
+   ADP5360_init();
 
   // Enable the VLT to the display
   HAL_GPIO_WritePin(VLT_LCD_GPIO_Port, VLT_LCD_Pin, GPIO_PIN_RESET);
