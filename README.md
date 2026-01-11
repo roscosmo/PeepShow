@@ -697,15 +697,19 @@ Implementation notes (Phase 1 display):
 - LS013B7DH05 is transport-only; it receives a buffer pointer for each flush.
 - DMA completion/error signals tskDisplay via thread flags (no polling loops).
 
+Implementation notes (Phase 2 UI router):
+- BOOT toggles the system menu; A/B/L/R are context actions defined per UI page/game.
+- Menu selection (e.g., Render Demo) requests game mode via sys event, then starts the demo once mode is active.
+
 ---
 
 ## Phase 2 — UI Rendering Discipline (no STOP2)
 Goal: UI generates commands, display consumes, no redraw loops.
 
-- [ ] Implement UI router/page structure minimal
+- [x] Implement UI router/page structure minimal
 - [x] UI sends invalidate commands only when state changes
 - [x] Ensure no periodic redraw unless explicitly needed
-- [ ] Confirm display idle most of the time in static menus
+- [x] Confirm display idle most of the time in static menus
 
 Acceptance:
 - UI navigation works
@@ -721,7 +725,7 @@ Goal: games are modules, inputs route cleanly.
   - normal → qUIEvents
   - game → qGameEvents
 - [x] Implement global hotkeys bypassing game mode
-- [ ] UI triggers enter/exit game via sys event
+- [x] UI triggers enter/exit game via sys event
 - [ ] tskGame runs one module at a time (logic + draw only)
 - [x] Exiting game returns routing back to UI
 
