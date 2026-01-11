@@ -15,7 +15,8 @@ typedef enum
   UI_PAGE_JOY_CAL = 2,
   UI_PAGE_JOY_TARGET = 3,
   UI_PAGE_JOY_CURSOR = 4,
-  UI_PAGE_SOUND = 5
+  UI_PAGE_SOUND = 5,
+  UI_PAGE_MENU_INPUT = 6
 } ui_page_t;
 
 typedef enum
@@ -26,7 +27,8 @@ typedef enum
   UI_ROUTER_CMD_OPEN_JOY_TARGET = 3,
   UI_ROUTER_CMD_OPEN_JOY_CURSOR = 4,
   UI_ROUTER_CMD_TOGGLE_KEYCLICK = 5,
-  UI_ROUTER_CMD_OPEN_SOUND = 6
+  UI_ROUTER_CMD_OPEN_SOUND = 6,
+  UI_ROUTER_CMD_OPEN_MENU_INPUT = 7
 } ui_router_cmd_t;
 
 void ui_router_init(void);
@@ -37,6 +39,8 @@ void ui_router_render(void);
 void ui_router_set_joy_cursor(uint16_t x, uint16_t y);
 bool ui_router_get_keyclick(void);
 void ui_router_set_keyclick(bool enable);
+void ui_router_set_menu_input_index(uint8_t index);
+uint8_t ui_router_get_menu_input_index(void);
 
 #ifdef __cplusplus
 }

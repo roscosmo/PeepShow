@@ -50,7 +50,7 @@ static void ui_update_sensor_mode(ui_page_t page)
 {
   app_sensor_req_t req = 0U;
 
-  if ((page == UI_PAGE_MENU) || (page == UI_PAGE_SOUND))
+  if ((page == UI_PAGE_MENU) || (page == UI_PAGE_SOUND) || (page == UI_PAGE_MENU_INPUT))
   {
     req |= APP_SENSOR_REQ_JOY_MENU_ON;
     req |= APP_SENSOR_REQ_JOY_MONITOR_OFF;
@@ -100,6 +100,8 @@ static ui_cursor_state_t s_cursor;
 static const float kCursorSpeedPxPerS = 120.0f;
 static const uint16_t kCursorSpriteW = 32U;
 static const uint16_t kCursorSpriteH = 32U;
+static uint8_t s_menu_input_index = 0U;
+static const uint8_t kMenuInputItemCount = 3U;
 
 static void ui_cursor_enter(void)
 {
@@ -374,10 +376,84 @@ void ui_task_run(void)
           ui_send_display_invalidate();
         }
       }
+      else if (page_now == UI_PAGE_MENU_INPUT)
+      {
+        if (button_id == (uint32_t)APP_BUTTON_B)
+        {
+          ui_router_set_page(UI_PAGE_MENU);
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+        else if ((button_id == (uint32_t)APP_BUTTON_JOY_UP) ||
+                 (button_id == (uint32_t)APP_BUTTON_JOY_DOWN))
+        {
+          if (button_id == (uint32_t)APP_BUTTON_JOY_UP)
+          {
+            if (s_menu_input_index == 0U)
+            {
+              s_menu_input_index = (uint8_t)(kMenuInputItemCount - 1U);
+            }
+            else
+            {
+              s_menu_input_index--;
+            }
+          }
+          else
+          {
+            s_menu_input_index = (uint8_t)((s_menu_input_index + 1U) % kMenuInputItemCount);
+          }
+          ui_router_set_menu_input_index(s_menu_input_index);
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+        else if ((button_id == (uint32_t)APP_BUTTON_L) ||
+                 (button_id == (uint32_t)APP_BUTTON_R))
+        {
+          app_sensor_req_t req = 0U;
+          uint8_t inc = (button_id == (uint32_t)APP_BUTTON_R) ? 1U : 0U;
+          if (s_menu_input_index == 0U)
+          {
+            req = inc ? APP_SENSOR_REQ_JOY_MENU_PRESS_INC : APP_SENSOR_REQ_JOY_MENU_PRESS_DEC;
+          }
+          else if (s_menu_input_index == 1U)
+          {
+            req = inc ? APP_SENSOR_REQ_JOY_MENU_RELEASE_INC : APP_SENSOR_REQ_JOY_MENU_RELEASE_DEC;
+          }
+          else
+          {
+            req = inc ? APP_SENSOR_REQ_JOY_MENU_RATIO_INC : APP_SENSOR_REQ_JOY_MENU_RATIO_DEC;
+          }
+          if (req != 0U)
+          {
+            ui_send_sensor_req(req);
+            ui_router_render();
+            ui_send_display_invalidate();
+          }
+        }
+      }
       else
       {
         ui_router_cmd_t cmd = UI_ROUTER_CMD_NONE;
-        bool changed = ui_router_handle_button(button_id, &cmd);
+        uint32_t nav_button = button_id;
+        if (button_id == (uint32_t)APP_BUTTON_JOY_UP)
+        {
+          nav_button = (uint32_t)APP_BUTTON_L;
+        }
+        else if (button_id == (uint32_t)APP_BUTTON_JOY_DOWN)
+        {
+          nav_button = (uint32_t)APP_BUTTON_R;
+        }
+        else if ((button_id == (uint32_t)APP_BUTTON_JOY_LEFT) ||
+                 (button_id == (uint32_t)APP_BUTTON_JOY_RIGHT))
+        {
+          nav_button = (uint32_t)APP_BUTTON_COUNT;
+        }
+
+        bool changed = false;
+        if (nav_button != (uint32_t)APP_BUTTON_COUNT)
+        {
+          changed = ui_router_handle_button(nav_button, &cmd);
+        }
         if (cmd == UI_ROUTER_CMD_START_RENDER_DEMO)
         {
           render_demo_set_mode(RENDER_DEMO_MODE_RUN);
@@ -420,6 +496,14 @@ void ui_task_run(void)
         else if (cmd == UI_ROUTER_CMD_OPEN_SOUND)
         {
           ui_router_set_page(UI_PAGE_SOUND);
+          ui_router_render();
+          ui_send_display_invalidate();
+        }
+        else if (cmd == UI_ROUTER_CMD_OPEN_MENU_INPUT)
+        {
+          s_menu_input_index = 0U;
+          ui_router_set_menu_input_index(s_menu_input_index);
+          ui_router_set_page(UI_PAGE_MENU_INPUT);
           ui_router_render();
           ui_send_display_invalidate();
         }

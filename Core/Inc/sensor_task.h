@@ -35,8 +35,16 @@ typedef struct
   uint8_t deadzone_en;
 } sensor_joy_status_t;
 
+typedef struct
+{
+  float press_norm;
+  float release_norm;
+  float axis_ratio;
+} sensor_joy_menu_params_t;
+
 void sensor_task_run(void);
 void sensor_joy_get_status(sensor_joy_status_t *out);
+void sensor_joy_get_menu_params(sensor_joy_menu_params_t *out);
 
 #ifdef __cplusplus
 }

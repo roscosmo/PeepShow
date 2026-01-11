@@ -44,7 +44,11 @@ typedef enum
   APP_BUTTON_L = 2U,
   APP_BUTTON_R = 3U,
   APP_BUTTON_BOOT = 4U,
-  APP_BUTTON_COUNT = 5U
+  APP_BUTTON_JOY_UP = 5U,
+  APP_BUTTON_JOY_DOWN = 6U,
+  APP_BUTTON_JOY_LEFT = 7U,
+  APP_BUTTON_JOY_RIGHT = 8U,
+  APP_BUTTON_COUNT = 9U
 } app_button_id_t;
 
 typedef struct
@@ -117,6 +121,12 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_SENSOR_REQ_JOY_MONITOR_OFF (1UL << 6U)
 #define APP_SENSOR_REQ_JOY_DZ_INC      (1UL << 7U)
 #define APP_SENSOR_REQ_JOY_DZ_DEC      (1UL << 8U)
+#define APP_SENSOR_REQ_JOY_MENU_PRESS_INC   (1UL << 9U)
+#define APP_SENSOR_REQ_JOY_MENU_PRESS_DEC   (1UL << 10U)
+#define APP_SENSOR_REQ_JOY_MENU_RELEASE_INC (1UL << 11U)
+#define APP_SENSOR_REQ_JOY_MENU_RELEASE_DEC (1UL << 12U)
+#define APP_SENSOR_REQ_JOY_MENU_RATIO_INC   (1UL << 13U)
+#define APP_SENSOR_REQ_JOY_MENU_RATIO_DEC   (1UL << 14U)
 #define APP_AUDIO_CMD_TOGGLE_TONE      (1UL << 0U)
 #define APP_AUDIO_CMD_STOP             (1UL << 1U)
 #define APP_AUDIO_CMD_KEYCLICK         (1UL << 2U)

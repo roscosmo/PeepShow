@@ -79,6 +79,35 @@ static const float kJoyCalDirMinMax = 12.0f;
 static const uint32_t kJoyMonitorTickMs = 100U;
 static const uint32_t kJoyCalTickMs = 10U;
 
+static float s_menu_press_norm = 0.45f;
+static float s_menu_release_norm = 0.25f;
+static float s_menu_axis_ratio = 1.4f;
+static uint8_t s_menu_wait_neutral = 0U;
+
+static const float kJoyMenuPressMin = 0.25f;
+static const float kJoyMenuPressMax = 0.90f;
+static const float kJoyMenuReleaseMin = 0.10f;
+static const float kJoyMenuReleaseMax = 0.80f;
+static const float kJoyMenuAxisMin = 1.0f;
+static const float kJoyMenuAxisMax = 2.5f;
+static const float kJoyMenuPressStep = 0.05f;
+static const float kJoyMenuReleaseStep = 0.05f;
+static const float kJoyMenuAxisStep = 0.1f;
+static const float kJoyMenuHystMin = 0.05f;
+
+static float sensor_clampf(float v, float lo, float hi)
+{
+  if (v < lo)
+  {
+    return lo;
+  }
+  if (v > hi)
+  {
+    return hi;
+  }
+  return v;
+}
+
 static void sensor_joy_cal_reset(void)
 {
   (void)memset(&s_cal, 0, sizeof(s_cal));
@@ -86,6 +115,31 @@ static void sensor_joy_cal_reset(void)
   s_cal.rot_s = 0.0f;
   s_cal.sx = 1.0f;
   s_cal.sy = 1.0f;
+}
+
+static void sensor_joy_menu_reset_state(void)
+{
+  s_menu_wait_neutral = 0U;
+}
+
+static void sensor_joy_menu_clamp(void)
+{
+  s_menu_press_norm = sensor_clampf(s_menu_press_norm, kJoyMenuPressMin, kJoyMenuPressMax);
+  s_menu_release_norm = sensor_clampf(s_menu_release_norm, kJoyMenuReleaseMin, kJoyMenuReleaseMax);
+  if (s_menu_release_norm > (s_menu_press_norm - kJoyMenuHystMin))
+  {
+    s_menu_release_norm = s_menu_press_norm - kJoyMenuHystMin;
+  }
+  if (s_menu_release_norm < kJoyMenuReleaseMin)
+  {
+    s_menu_release_norm = kJoyMenuReleaseMin;
+  }
+  if (s_menu_press_norm < (s_menu_release_norm + kJoyMenuHystMin))
+  {
+    s_menu_press_norm = s_menu_release_norm + kJoyMenuHystMin;
+  }
+  s_menu_press_norm = sensor_clampf(s_menu_press_norm, kJoyMenuPressMin, kJoyMenuPressMax);
+  s_menu_axis_ratio = sensor_clampf(s_menu_axis_ratio, kJoyMenuAxisMin, kJoyMenuAxisMax);
 }
 
 static void sensor_joy_status_reset(void)
@@ -440,6 +494,7 @@ static void sensor_joy_save(TMAGJoy *joy)
 static void sensor_joy_set_menu_nav(TMAGJoy *joy, uint8_t enable)
 {
   s_menu_nav_enabled = enable ? 1U : 0U;
+  sensor_joy_menu_reset_state();
   if (joy != NULL)
   {
     TMAGJoy_MenuEnable(enable);
@@ -498,36 +553,101 @@ static void sensor_joy_adjust_deadzone(TMAGJoy *joy, int32_t delta_px)
   sensor_joy_refresh_status(joy, true);
 }
 
-static void sensor_joy_emit_menu_event(TMAGJoy_Dir dir)
+static void sensor_joy_emit_menu_event(app_button_id_t button_id)
 {
   if ((qInputHandle == NULL) || !sensor_is_ui_mode())
   {
     return;
   }
 
-  uint8_t button_id = 0U;
-  switch (dir)
+  if (button_id >= APP_BUTTON_COUNT)
   {
-    case TMAGJOY_LEFT:
-    case TMAGJOY_UPLEFT:
-    case TMAGJOY_UP:
-    case TMAGJOY_DOWNLEFT:
-      button_id = (uint8_t)APP_BUTTON_L;
-      break;
-    case TMAGJOY_RIGHT:
-    case TMAGJOY_UPRIGHT:
-    case TMAGJOY_DOWNRIGHT:
-    case TMAGJOY_DOWN:
-      button_id = (uint8_t)APP_BUTTON_R;
-      break;
-    default:
-      return;
+    return;
   }
 
   app_input_event_t evt = {0};
-  evt.button_id = button_id;
+  evt.button_id = (uint8_t)button_id;
   evt.pressed = 1U;
   (void)osMessageQueuePut(qInputHandle, &evt, 0U, 0U);
+}
+
+static app_button_id_t sensor_joy_menu_dir(float nx, float ny)
+{
+  float ax = fabsf(nx);
+  float ay = fabsf(ny);
+
+  if ((ax < 1e-4f) && (ay < 1e-4f))
+  {
+    return APP_BUTTON_COUNT;
+  }
+
+  float ratio = s_menu_axis_ratio;
+  if (ratio < kJoyMenuAxisMin)
+  {
+    ratio = kJoyMenuAxisMin;
+  }
+
+  if (ax >= (ay * ratio))
+  {
+    return (nx >= 0.0f) ? APP_BUTTON_JOY_RIGHT : APP_BUTTON_JOY_LEFT;
+  }
+
+  if (ay >= (ax * ratio))
+  {
+    return (ny >= 0.0f) ? APP_BUTTON_JOY_UP : APP_BUTTON_JOY_DOWN;
+  }
+
+  return APP_BUTTON_COUNT;
+}
+
+static void sensor_joy_menu_poll(TMAGJoy *joy)
+{
+  if (joy == NULL)
+  {
+    return;
+  }
+
+  float nx = 0.0f;
+  float ny = 0.0f;
+  float r_abs = 0.0f;
+  TMAGJoy_ReadCalibratedRaw(joy, &nx, &ny, &r_abs);
+
+  float rN = sqrtf(nx * nx + ny * ny);
+  if (rN > 1.0f)
+  {
+    rN = 1.0f;
+  }
+
+  uint8_t dz_en = 0U;
+  float dz_mT = 0.0f;
+  TMAGJoy_GetAbsDeadzone(joy, &dz_en, &dz_mT);
+  if ((dz_en != 0U) && (r_abs < dz_mT))
+  {
+    rN = 0.0f;
+  }
+
+  if (s_menu_wait_neutral != 0U)
+  {
+    if (rN <= s_menu_release_norm)
+    {
+      s_menu_wait_neutral = 0U;
+    }
+    return;
+  }
+
+  if (rN < s_menu_press_norm)
+  {
+    return;
+  }
+
+  app_button_id_t button_id = sensor_joy_menu_dir(nx, ny);
+  if (button_id == APP_BUTTON_COUNT)
+  {
+    return;
+  }
+
+  s_menu_wait_neutral = 1U;
+  sensor_joy_emit_menu_event(button_id);
 }
 
 static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t now_ms)
@@ -567,6 +687,42 @@ static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t n
   if ((req & APP_SENSOR_REQ_JOY_DZ_DEC) != 0U)
   {
     sensor_joy_adjust_deadzone(joy, -2);
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_PRESS_INC) != 0U)
+  {
+    s_menu_press_norm += kJoyMenuPressStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_PRESS_DEC) != 0U)
+  {
+    s_menu_press_norm -= kJoyMenuPressStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_RELEASE_INC) != 0U)
+  {
+    s_menu_release_norm += kJoyMenuReleaseStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_RELEASE_DEC) != 0U)
+  {
+    s_menu_release_norm -= kJoyMenuReleaseStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_RATIO_INC) != 0U)
+  {
+    s_menu_axis_ratio += kJoyMenuAxisStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
+  }
+  if ((req & APP_SENSOR_REQ_JOY_MENU_RATIO_DEC) != 0U)
+  {
+    s_menu_axis_ratio -= kJoyMenuAxisStep;
+    sensor_joy_menu_clamp();
+    sensor_joy_menu_reset_state();
   }
 }
 
@@ -877,6 +1033,8 @@ void sensor_task_run(void)
   TMAGJoy_InitOnce();
   TMAGJoy *joy = UI_GetJoy();
   sensor_joy_status_reset();
+  sensor_joy_menu_clamp();
+  sensor_joy_menu_reset_state();
   sensor_joy_set_menu_nav(joy, 0U);
   sensor_joy_set_monitor(0U);
   sensor_joy_refresh_status(joy, false);
@@ -916,11 +1074,7 @@ void sensor_task_run(void)
 
     if ((s_menu_nav_enabled != 0U) && sensor_is_ui_mode())
     {
-      TMAGJoy_Dir dir = TMAGJoy_MenuPoll(1U, 0U);
-      if (dir != TMAGJOY_NEUTRAL)
-      {
-        sensor_joy_emit_menu_event(dir);
-      }
+      sensor_joy_menu_poll(joy);
     }
   }
 }
@@ -933,4 +1087,16 @@ void sensor_joy_get_status(sensor_joy_status_t *out)
   }
 
   *out = s_status;
+}
+
+void sensor_joy_get_menu_params(sensor_joy_menu_params_t *out)
+{
+  if (out == NULL)
+  {
+    return;
+  }
+
+  out->press_norm = s_menu_press_norm;
+  out->release_norm = s_menu_release_norm;
+  out->axis_ratio = s_menu_axis_ratio;
 }

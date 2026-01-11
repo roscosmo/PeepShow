@@ -22,7 +22,8 @@ static const ui_menu_item_t k_menu_items[] =
   { "Joy Target", UI_ROUTER_CMD_OPEN_JOY_TARGET },
   { "Joy Cursor", UI_ROUTER_CMD_OPEN_JOY_CURSOR },
   { "Render Demo", UI_ROUTER_CMD_START_RENDER_DEMO },
-  { "Sound Settings", UI_ROUTER_CMD_OPEN_SOUND }
+  { "Sound Settings", UI_ROUTER_CMD_OPEN_SOUND },
+  { "Menu Input", UI_ROUTER_CMD_OPEN_MENU_INPUT }
 };
 
 static const uint8_t k_menu_item_count = (uint8_t)(sizeof(k_menu_items) / sizeof(k_menu_items[0]));
@@ -42,6 +43,8 @@ static ui_router_state_t s_ui =
 static uint16_t s_joy_cursor_x = 0U;
 static uint16_t s_joy_cursor_y = 0U;
 static bool s_keyclick_enabled = true;
+static uint8_t s_menu_input_index = 0U;
+enum { UI_MENU_INPUT_ITEM_COUNT = 3 };
 
 static const uint16_t k_cursor_sprite_w = 32U;
 static const uint16_t k_cursor_sprite_h = 32U;
@@ -144,6 +147,70 @@ static void ui_render_sound(uint16_t width, uint16_t height)
     renderDrawText(4U, hint_y, "L/R: LEVEL  A: TOGGLE", RENDER_LAYER_UI, RENDER_STATE_BLACK);
     renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
                    "B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+  }
+
+  (void)width;
+}
+
+static void ui_render_menu_input(uint16_t width, uint16_t height)
+{
+  sensor_joy_menu_params_t params;
+  sensor_joy_get_menu_params(&params);
+
+  renderFill(false);
+  renderDrawText(4U, 4U, "MENU INPUT", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  uint16_t y = 20U;
+  for (uint8_t i = 0U; i < UI_MENU_INPUT_ITEM_COUNT; ++i)
+  {
+    char line[24];
+    if (i == 0U)
+    {
+      int32_t v = (int32_t)(params.press_norm * 100.0f + 0.5f);
+      (void)snprintf(line, sizeof(line), "Press: %ld.%02ld", (long)(v / 100), (long)(v % 100));
+    }
+    else if (i == 1U)
+    {
+      int32_t v = (int32_t)(params.release_norm * 100.0f + 0.5f);
+      (void)snprintf(line, sizeof(line), "Release: %ld.%02ld", (long)(v / 100), (long)(v % 100));
+    }
+    else
+    {
+      int32_t v = (int32_t)(params.axis_ratio * 10.0f + 0.5f);
+      (void)snprintf(line, sizeof(line), "Axis: %ld.%01ld", (long)(v / 10), (long)(v % 10));
+    }
+
+    bool selected = (i == s_menu_input_index);
+    if (selected)
+    {
+      uint16_t text_w = ui_text_width(line);
+      uint16_t box_w = (uint16_t)(text_w + 4U);
+      if (box_w < 10U)
+      {
+        box_w = 10U;
+      }
+      renderFillRect(2U, (uint16_t)(y - 1U), box_w, (uint16_t)(FONT8X8_HEIGHT + 2U),
+                     RENDER_LAYER_UI, RENDER_STATE_BLACK);
+      renderDrawText(4U, y, line, RENDER_LAYER_UI, RENDER_STATE_WHITE);
+    }
+    else
+    {
+      renderDrawText(4U, y, line, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    }
+
+    y = (uint16_t)(y + (FONT8X8_HEIGHT + 4U));
+    if ((height > 0U) && (y >= height))
+    {
+      break;
+    }
+  }
+
+  if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
+  {
+    uint16_t hint_y = (uint16_t)(height - (FONT8X8_HEIGHT * 2U + 4U));
+    renderDrawText(4U, hint_y, "JOY U/D: SELECT", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
+                   "L/R: ADJUST  B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
   }
 
   (void)width;
@@ -388,6 +455,7 @@ void ui_router_init(void)
   s_ui.menu_index = 0U;
   s_joy_cursor_x = 0U;
   s_joy_cursor_y = 0U;
+  s_menu_input_index = 0U;
 }
 
 ui_page_t ui_router_get_page(void)
@@ -474,6 +542,9 @@ void ui_router_render(void)
     case UI_PAGE_SOUND:
       ui_render_sound(width, height);
       break;
+    case UI_PAGE_MENU_INPUT:
+      ui_render_menu_input(width, height);
+      break;
     default:
       ui_render_menu(width, height);
       break;
@@ -494,4 +565,18 @@ bool ui_router_get_keyclick(void)
 void ui_router_set_keyclick(bool enable)
 {
   s_keyclick_enabled = enable;
+}
+
+void ui_router_set_menu_input_index(uint8_t index)
+{
+  if (index >= UI_MENU_INPUT_ITEM_COUNT)
+  {
+    index = 0U;
+  }
+  s_menu_input_index = index;
+}
+
+uint8_t ui_router_get_menu_input_index(void)
+{
+  return s_menu_input_index;
 }
