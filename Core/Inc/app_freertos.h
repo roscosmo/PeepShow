@@ -106,6 +106,7 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_SYS_EVENT_ENTER_GAME  (1UL << 1U)
 #define APP_SYS_EVENT_EXIT_GAME   (1UL << 2U)
 #define APP_DISPLAY_CMD_TOGGLE    (1UL)
+#define APP_DISPLAY_CMD_TEST_LAYERS (2UL)
 
 /* USER CODE END PD */
 

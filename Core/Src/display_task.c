@@ -13,12 +13,67 @@ static uint16_t s_rows[DISPLAY_HEIGHT];
 static const uint32_t kDisplayFlagDmaDone = (1UL << 0U);
 static const uint32_t kDisplayFlagDmaError = (1UL << 1U);
 static const uint32_t kDisplayFlushTimeoutMs = 200U;
+
+static void display_test_layers(void)
+{
+  uint16_t width = renderGetWidth();
+  uint16_t height = renderGetHeight();
+
+  if ((width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  renderFill(false);
+
+  uint16_t band_y = (uint16_t)((height * 2U) / 3U);
+  uint16_t band_h = (uint16_t)(height - band_y);
+  renderFillRect(0U, band_y, width, band_h, RENDER_LAYER_BG, RENDER_STATE_BLACK);
+
+  uint16_t game_x = (uint16_t)(width / 10U);
+  uint16_t game_y = (uint16_t)(height / 10U);
+  uint16_t game_w = (uint16_t)(width / 2U);
+  uint16_t game_h = (uint16_t)(height / 4U);
+  renderFillRect(game_x, game_y, game_w, game_h, RENDER_LAYER_GAME, RENDER_STATE_BLACK);
+
+  uint16_t game2_y = (uint16_t)(band_y + (band_h / 4U));
+  uint16_t game2_h = (uint16_t)(band_h / 2U);
+  renderFillRect(game_x, game2_y, game_w, game2_h, RENDER_LAYER_GAME, RENDER_STATE_WHITE);
+
+  uint16_t ui_x = (uint16_t)(game_x + (game_w / 4U));
+  uint16_t ui_y = (uint16_t)(game_y + (game_h / 4U));
+  uint16_t ui_w = (uint16_t)(game_w / 2U);
+  uint16_t ui_h = (uint16_t)(game_h / 2U);
+  renderFillRect(ui_x, ui_y, ui_w, ui_h, RENDER_LAYER_UI, RENDER_STATE_WHITE);
+
+  uint16_t ui2_y = (uint16_t)(game2_y + (game2_h / 4U));
+  uint16_t ui2_h = (uint16_t)(game2_h / 2U);
+  renderFillRect(ui_x, ui2_y, ui_w, ui2_h, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  renderDrawRect(game_x, game_y, game_w, game_h, RENDER_LAYER_GAME, RENDER_STATE_WHITE);
+  renderDrawLine(0U, 0U, (uint16_t)(width - 1U), (uint16_t)(height - 1U),
+                 RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
+  uint16_t min_dim = (width < height) ? width : height;
+  uint16_t radius = (uint16_t)(min_dim / 6U);
+  if (radius > 0U)
+  {
+    renderDrawCircle((uint16_t)(width / 2U), (uint16_t)(height / 2U), radius,
+                     RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    renderFillCircle((uint16_t)(width / 2U), (uint16_t)(height / 2U),
+                     (uint16_t)(radius / 2U), RENDER_LAYER_GAME, RENDER_STATE_WHITE);
+  }
+}
+
 static void display_handle_cmd(app_display_cmd_t cmd)
 {
   switch (cmd)
   {
     case APP_DISPLAY_CMD_TOGGLE:
       renderInvert();
+      break;
+    case APP_DISPLAY_CMD_TEST_LAYERS:
+      display_test_layers();
       break;
     default:
       break;

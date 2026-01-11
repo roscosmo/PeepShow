@@ -10,6 +10,14 @@
   #define DIRTY_LAST_WORD_MASK ((1UL << (DISPLAY_HEIGHT % 32U)) - 1UL)
 #endif
 
+#define RENDER_UI_SHIFT 0U
+#define RENDER_UI_MASK (0x3U << RENDER_UI_SHIFT)
+#define RENDER_GAME_SHIFT 2U
+#define RENDER_GAME_MASK (0x3U << RENDER_GAME_SHIFT)
+#define RENDER_BG_SHIFT 4U
+#define RENDER_BG_MASK (0x1U << RENDER_BG_SHIFT)
+#define RENDER_DIRTY_MASK (0x1U << 7U)
+
 /* Place framebuffer in SRAM4 for LPDMA access. */
 #if defined(__GNUC__)
   #define SRAM4_BUF_ATTR __attribute__((section(".sram4"))) __attribute__((aligned(4)))
@@ -19,8 +27,10 @@
   #define SRAM4_BUF_ATTR
 #endif
 
-static uint8_t s_framebuffer[BUFFER_LENGTH] SRAM4_BUF_ATTR;
+static uint8_t s_packed_buffer[BUFFER_LENGTH] SRAM4_BUF_ATTR;
+static uint8_t s_l8_buffer[DISPLAY_WIDTH * DISPLAY_HEIGHT] __attribute__((aligned(4)));
 static uint32_t s_dirty_mask[DIRTY_WORD_COUNT];
+static render_rotation_t s_rotation = RENDER_ROTATION_270_CW;
 
 static bool normalize_span(uint16_t *start_row, uint16_t *end_row)
 {
@@ -49,6 +59,203 @@ static bool normalize_span(uint16_t *start_row, uint16_t *end_row)
   }
 
   return true;
+}
+
+static void render_get_logical_dims(uint16_t *width, uint16_t *height)
+{
+  if ((width == NULL) || (height == NULL))
+  {
+    return;
+  }
+
+  if ((s_rotation == RENDER_ROTATION_90_CW) || (s_rotation == RENDER_ROTATION_270_CW))
+  {
+    *width = DISPLAY_HEIGHT;
+    *height = DISPLAY_WIDTH;
+  }
+  else
+  {
+    *width = DISPLAY_WIDTH;
+    *height = DISPLAY_HEIGHT;
+  }
+}
+
+static bool normalize_logical_span(uint16_t *start_row, uint16_t *end_row)
+{
+  if ((start_row == NULL) || (end_row == NULL))
+  {
+    return false;
+  }
+  if ((*start_row == 0U) || (*end_row == 0U))
+  {
+    return false;
+  }
+
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+
+  if (*start_row > height)
+  {
+    *start_row = height;
+  }
+  if (*end_row > height)
+  {
+    *end_row = height;
+  }
+  if (*start_row > *end_row)
+  {
+    uint16_t tmp = *start_row;
+    *start_row = *end_row;
+    *end_row = tmp;
+  }
+
+  return true;
+}
+
+static bool render_map_xy(uint16_t x, uint16_t y, uint16_t *out_x, uint16_t *out_y)
+{
+  if ((out_x == NULL) || (out_y == NULL))
+  {
+    return false;
+  }
+
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+  if ((x >= width) || (y >= height))
+  {
+    return false;
+  }
+
+  switch (s_rotation)
+  {
+    case RENDER_ROTATION_0:
+      *out_x = x;
+      *out_y = y;
+      break;
+    case RENDER_ROTATION_90_CW:
+      *out_x = y;
+      *out_y = (uint16_t)(DISPLAY_HEIGHT - 1U - x);
+      break;
+    case RENDER_ROTATION_180:
+      *out_x = (uint16_t)(DISPLAY_WIDTH - 1U - x);
+      *out_y = (uint16_t)(DISPLAY_HEIGHT - 1U - y);
+      break;
+    case RENDER_ROTATION_270_CW:
+      *out_x = (uint16_t)(DISPLAY_WIDTH - 1U - y);
+      *out_y = x;
+      break;
+    default:
+      return false;
+  }
+
+  return true;
+}
+
+static uint8_t get_ui_state(uint8_t pixel)
+{
+  return (uint8_t)((pixel & RENDER_UI_MASK) >> RENDER_UI_SHIFT);
+}
+
+static uint8_t get_game_state(uint8_t pixel)
+{
+  return (uint8_t)((pixel & RENDER_GAME_MASK) >> RENDER_GAME_SHIFT);
+}
+
+static uint8_t set_ui_state(uint8_t pixel, uint8_t state)
+{
+  pixel &= (uint8_t)~RENDER_UI_MASK;
+  pixel |= (uint8_t)((state & 0x3U) << RENDER_UI_SHIFT);
+  return pixel;
+}
+
+static uint8_t set_game_state(uint8_t pixel, uint8_t state)
+{
+  pixel &= (uint8_t)~RENDER_GAME_MASK;
+  pixel |= (uint8_t)((state & 0x3U) << RENDER_GAME_SHIFT);
+  return pixel;
+}
+
+static uint8_t set_bg_state(uint8_t pixel, render_state_t state)
+{
+  if (state == RENDER_STATE_BLACK)
+  {
+    pixel |= RENDER_BG_MASK;
+  }
+  else if (state == RENDER_STATE_WHITE)
+  {
+    pixel &= (uint8_t)~RENDER_BG_MASK;
+  }
+  return pixel;
+}
+
+static uint8_t apply_layer_state(uint8_t pixel, render_layer_t layer, render_state_t state)
+{
+  if (layer == RENDER_LAYER_UI)
+  {
+    return set_ui_state(pixel, (uint8_t)state);
+  }
+  if (layer == RENDER_LAYER_GAME)
+  {
+    return set_game_state(pixel, (uint8_t)state);
+  }
+  return set_bg_state(pixel, state);
+}
+
+static uint8_t swap_bw_state(uint8_t state)
+{
+  if (state == RENDER_STATE_BLACK)
+  {
+    return RENDER_STATE_WHITE;
+  }
+  if (state == RENDER_STATE_WHITE)
+  {
+    return RENDER_STATE_BLACK;
+  }
+  return state;
+}
+
+static uint8_t resolve_pixel(uint8_t pixel)
+{
+  uint8_t ui = get_ui_state(pixel);
+  if (ui == RENDER_STATE_BLACK)
+  {
+    return 0U;
+  }
+  if (ui == RENDER_STATE_WHITE)
+  {
+    return 1U;
+  }
+
+  uint8_t game = get_game_state(pixel);
+  if (game == RENDER_STATE_BLACK)
+  {
+    return 0U;
+  }
+  if (game == RENDER_STATE_WHITE)
+  {
+    return 1U;
+  }
+
+  return ((pixel & RENDER_BG_MASK) != 0U) ? 0U : 1U;
+}
+
+static uint8_t invert_pixel(uint8_t pixel)
+{
+  uint8_t ui = get_ui_state(pixel);
+  if ((ui == RENDER_STATE_BLACK) || (ui == RENDER_STATE_WHITE))
+  {
+    return set_ui_state(pixel, swap_bw_state(ui));
+  }
+
+  uint8_t game = get_game_state(pixel);
+  if ((game == RENDER_STATE_BLACK) || (game == RENDER_STATE_WHITE))
+  {
+    return set_game_state(pixel, swap_bw_state(game));
+  }
+
+  return (uint8_t)(pixel ^ (uint8_t)RENDER_BG_MASK);
 }
 
 static void dirty_clear_all(void)
@@ -107,6 +314,44 @@ static bool dirty_is_row(uint16_t row)
   return ((s_dirty_mask[idx / 32U] >> (idx % 32U)) & 1UL) != 0U;
 }
 
+static void render_write_pixel_physical(uint16_t x, uint16_t y, uint8_t pixel)
+{
+  uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
+  s_l8_buffer[idx] = (uint8_t)(pixel | RENDER_DIRTY_MASK);
+  dirty_set_row((uint16_t)(y + 1U));
+}
+
+static void render_set_pixel_physical(uint16_t x, uint16_t y, render_layer_t layer, render_state_t state)
+{
+  uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
+  uint8_t pixel = s_l8_buffer[idx];
+  pixel = apply_layer_state(pixel, layer, state);
+  s_l8_buffer[idx] = (uint8_t)(pixel | RENDER_DIRTY_MASK);
+  dirty_set_row((uint16_t)(y + 1U));
+}
+
+static void render_invert_pixel_physical(uint16_t x, uint16_t y)
+{
+  uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
+  uint8_t pixel = s_l8_buffer[idx];
+  pixel = invert_pixel(pixel);
+  s_l8_buffer[idx] = (uint8_t)(pixel | RENDER_DIRTY_MASK);
+  dirty_set_row((uint16_t)(y + 1U));
+}
+
+static void mark_row_dirty_bits(uint16_t row)
+{
+  if ((row < 1U) || (row > DISPLAY_HEIGHT))
+  {
+    return;
+  }
+  uint32_t offset = (uint32_t)(row - 1U) * DISPLAY_WIDTH;
+  for (uint32_t i = 0U; i < DISPLAY_WIDTH; ++i)
+  {
+    s_l8_buffer[offset + i] |= RENDER_DIRTY_MASK;
+  }
+}
+
 static void mark_dirty_span(uint16_t start_row, uint16_t end_row)
 {
   if (!normalize_span(&start_row, &end_row))
@@ -120,15 +365,73 @@ static void mark_dirty_span(uint16_t start_row, uint16_t end_row)
   }
 }
 
+static void pack_row(uint16_t row)
+{
+  uint32_t row_index = (uint32_t)(row - 1U);
+  uint8_t *dst = &s_packed_buffer[row_index * LINE_WIDTH];
+  uint8_t *src = &s_l8_buffer[row_index * DISPLAY_WIDTH];
+  uint8_t out_byte = 0U;
+
+  for (uint16_t x = 0U; x < DISPLAY_WIDTH; ++x)
+  {
+    uint8_t pixel = src[x];
+    uint8_t bit = resolve_pixel(pixel);
+    if (bit != 0U)
+    {
+      out_byte |= (uint8_t)(1U << (x & 7U));
+    }
+    src[x] = (uint8_t)(pixel & (uint8_t)~RENDER_DIRTY_MASK);
+    if ((x & 7U) == 7U)
+    {
+      dst[x >> 3U] = out_byte;
+      out_byte = 0U;
+    }
+  }
+}
+
 void renderInit(void)
 {
-  memset(s_framebuffer, 0xFF, BUFFER_LENGTH);
+  memset(s_packed_buffer, 0xFF, BUFFER_LENGTH);
+  memset(s_l8_buffer, 0x00, sizeof(s_l8_buffer));
   dirty_clear_all();
+  s_rotation = RENDER_ROTATION_270_CW;
+}
+
+void renderSetRotation(render_rotation_t rotation)
+{
+  if ((rotation == RENDER_ROTATION_0) ||
+      (rotation == RENDER_ROTATION_90_CW) ||
+      (rotation == RENDER_ROTATION_180) ||
+      (rotation == RENDER_ROTATION_270_CW))
+  {
+    s_rotation = rotation;
+  }
+}
+
+render_rotation_t renderGetRotation(void)
+{
+  return s_rotation;
+}
+
+uint16_t renderGetWidth(void)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+  return width;
+}
+
+uint16_t renderGetHeight(void)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+  return height;
 }
 
 const uint8_t *renderGetBuffer(void)
 {
-  return s_framebuffer;
+  return s_packed_buffer;
 }
 
 bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count, bool *out_full)
@@ -154,6 +457,7 @@ bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count,
     {
       rows[count++] = row;
       dirty_clear_row(row);
+      pack_row(row);
     }
     else
     {
@@ -173,6 +477,14 @@ bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count,
 void renderMarkDirtyRows(uint16_t start_row, uint16_t end_row)
 {
   mark_dirty_span(start_row, end_row);
+  if (!normalize_span(&start_row, &end_row))
+  {
+    return;
+  }
+  for (uint16_t row = start_row; row <= end_row; ++row)
+  {
+    mark_row_dirty_bits(row);
+  }
 }
 
 void renderMarkDirtyList(const uint16_t *rows, uint16_t row_count)
@@ -185,53 +497,402 @@ void renderMarkDirtyList(const uint16_t *rows, uint16_t row_count)
   for (uint16_t i = 0U; i < row_count; ++i)
   {
     dirty_set_row(rows[i]);
+    mark_row_dirty_bits(rows[i]);
   }
 }
 
 void renderFill(bool fill)
 {
-  memset(s_framebuffer, fill ? 0x00 : 0xFF, BUFFER_LENGTH);
+  uint8_t pixel = 0U;
+  if (fill)
+  {
+    pixel |= RENDER_BG_MASK;
+  }
+  pixel |= RENDER_DIRTY_MASK;
+  memset(s_l8_buffer, pixel, sizeof(s_l8_buffer));
   dirty_set_all();
 }
 
 void renderInvert(void)
 {
-  for (uint32_t i = 0U; i < BUFFER_LENGTH; i++)
+  for (uint32_t i = 0U; i < (uint32_t)DISPLAY_WIDTH * DISPLAY_HEIGHT; ++i)
   {
-    s_framebuffer[i] = (uint8_t)~s_framebuffer[i];
+    uint8_t pixel = s_l8_buffer[i];
+    pixel = invert_pixel(pixel);
+    s_l8_buffer[i] = (uint8_t)(pixel | RENDER_DIRTY_MASK);
   }
   dirty_set_all();
 }
 
 void renderFillRows(uint16_t start_row, uint16_t end_row, bool fill)
 {
-  if (!normalize_span(&start_row, &end_row))
+  if (!normalize_logical_span(&start_row, &end_row))
   {
     return;
   }
 
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+  (void)height;
+
+  uint8_t base_pixel = 0U;
+  if (fill)
+  {
+    base_pixel |= RENDER_BG_MASK;
+  }
+
   for (uint16_t row = start_row; row <= end_row; ++row)
   {
-    uint32_t offset = (uint32_t)(row - 1U) * LINE_WIDTH;
-    memset(&s_framebuffer[offset], fill ? 0x00 : 0xFF, LINE_WIDTH);
+    uint16_t y = (uint16_t)(row - 1U);
+    for (uint16_t x = 0U; x < width; ++x)
+    {
+      uint16_t px = 0U;
+      uint16_t py = 0U;
+      if (!render_map_xy(x, y, &px, &py))
+      {
+        continue;
+      }
+      render_write_pixel_physical(px, py, base_pixel);
+    }
   }
-  mark_dirty_span(start_row, end_row);
 }
 
 void renderInvertRows(uint16_t start_row, uint16_t end_row)
 {
-  if (!normalize_span(&start_row, &end_row))
+  if (!normalize_logical_span(&start_row, &end_row))
   {
     return;
   }
 
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+  (void)height;
+
   for (uint16_t row = start_row; row <= end_row; ++row)
   {
-    uint32_t offset = (uint32_t)(row - 1U) * LINE_WIDTH;
-    for (uint32_t col = 0U; col < LINE_WIDTH; ++col)
+    uint16_t y = (uint16_t)(row - 1U);
+    for (uint16_t x = 0U; x < width; ++x)
     {
-      s_framebuffer[offset + col] = (uint8_t)~s_framebuffer[offset + col];
+      uint16_t px = 0U;
+      uint16_t py = 0U;
+      if (!render_map_xy(x, y, &px, &py))
+      {
+        continue;
+      }
+      render_invert_pixel_physical(px, py);
     }
   }
-  mark_dirty_span(start_row, end_row);
+}
+
+void renderSetPixel(uint16_t x, uint16_t y, render_layer_t layer, render_state_t state)
+{
+  uint16_t px = 0U;
+  uint16_t py = 0U;
+  if (!render_map_xy(x, y, &px, &py))
+  {
+    return;
+  }
+
+  render_set_pixel_physical(px, py, layer, state);
+}
+
+void renderDrawHLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t layer, render_state_t state)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+
+  if ((y >= height) || (x >= width) || (length == 0U))
+  {
+    return;
+  }
+
+  uint16_t end = (uint16_t)(x + length);
+  if (end > width)
+  {
+    end = width;
+  }
+
+  for (uint16_t ix = x; ix < end; ++ix)
+  {
+    renderSetPixel(ix, y, layer, state);
+  }
+}
+
+void renderDrawVLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t layer, render_state_t state)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+
+  if ((x >= width) || (y >= height) || (length == 0U))
+  {
+    return;
+  }
+
+  uint16_t end = (uint16_t)(y + length);
+  if (end > height)
+  {
+    end = height;
+  }
+
+  for (uint16_t iy = y; iy < end; ++iy)
+  {
+    renderSetPixel(x, iy, layer, state);
+  }
+}
+
+void renderFillRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, render_layer_t layer, render_state_t state)
+{
+  uint16_t logical_width = 0U;
+  uint16_t logical_height = 0U;
+  render_get_logical_dims(&logical_width, &logical_height);
+
+  if ((x >= logical_width) || (y >= logical_height) || (width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  uint16_t end_x = (uint16_t)(x + width);
+  uint16_t end_y = (uint16_t)(y + height);
+  if (end_x > logical_width)
+  {
+    end_x = logical_width;
+  }
+  if (end_y > logical_height)
+  {
+    end_y = logical_height;
+  }
+
+  for (uint16_t iy = y; iy < end_y; ++iy)
+  {
+    uint16_t span = (uint16_t)(end_x - x);
+    renderDrawHLine(x, iy, span, layer, state);
+  }
+}
+
+void renderDrawRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, render_layer_t layer, render_state_t state)
+{
+  if ((width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  renderDrawHLine(x, y, width, layer, state);
+  if (height > 1U)
+  {
+    renderDrawHLine(x, (uint16_t)(y + height - 1U), width, layer, state);
+  }
+
+  if (height > 2U)
+  {
+    renderDrawVLine(x, (uint16_t)(y + 1U), (uint16_t)(height - 2U), layer, state);
+    if (width > 1U)
+    {
+      renderDrawVLine((uint16_t)(x + width - 1U), (uint16_t)(y + 1U), (uint16_t)(height - 2U), layer, state);
+    }
+  }
+}
+
+void renderDrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, render_layer_t layer, render_state_t state)
+{
+  int32_t ix0 = (int32_t)x0;
+  int32_t iy0 = (int32_t)y0;
+  int32_t ix1 = (int32_t)x1;
+  int32_t iy1 = (int32_t)y1;
+
+  int32_t dx = (ix0 < ix1) ? (ix1 - ix0) : (ix0 - ix1);
+  int32_t sx = (ix0 < ix1) ? 1 : -1;
+  int32_t dy = (iy0 < iy1) ? (iy1 - iy0) : (iy0 - iy1);
+  int32_t sy = (iy0 < iy1) ? 1 : -1;
+  int32_t err = dx - dy;
+
+  for (;;)
+  {
+    renderSetPixel((uint16_t)ix0, (uint16_t)iy0, layer, state);
+    if ((ix0 == ix1) && (iy0 == iy1))
+    {
+      break;
+    }
+    int32_t e2 = err * 2;
+    if (e2 > -dy)
+    {
+      err -= dy;
+      ix0 += sx;
+    }
+    if (e2 < dx)
+    {
+      err += dx;
+      iy0 += sy;
+    }
+  }
+}
+
+void renderDrawLineThick(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness,
+                         render_layer_t layer, render_state_t state)
+{
+  if (thickness <= 1U)
+  {
+    renderDrawLine(x0, y0, x1, y1, layer, state);
+    return;
+  }
+
+  uint16_t radius = (uint16_t)(thickness / 2U);
+  if (radius == 0U)
+  {
+    renderDrawLine(x0, y0, x1, y1, layer, state);
+    return;
+  }
+
+  int32_t ix0 = (int32_t)x0;
+  int32_t iy0 = (int32_t)y0;
+  int32_t ix1 = (int32_t)x1;
+  int32_t iy1 = (int32_t)y1;
+
+  int32_t dx = (ix0 < ix1) ? (ix1 - ix0) : (ix0 - ix1);
+  int32_t sx = (ix0 < ix1) ? 1 : -1;
+  int32_t dy = (iy0 < iy1) ? (iy1 - iy0) : (iy0 - iy1);
+  int32_t sy = (iy0 < iy1) ? 1 : -1;
+  int32_t err = dx - dy;
+
+  for (;;)
+  {
+    renderFillCircle((uint16_t)ix0, (uint16_t)iy0, radius, layer, state);
+    if ((ix0 == ix1) && (iy0 == iy1))
+    {
+      break;
+    }
+    int32_t e2 = err * 2;
+    if (e2 > -dy)
+    {
+      err -= dy;
+      ix0 += sx;
+    }
+    if (e2 < dx)
+    {
+      err += dx;
+      iy0 += sy;
+    }
+  }
+}
+
+static void renderDrawHLineClamped(int32_t x0, int32_t x1, int32_t y, render_layer_t layer, render_state_t state)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+
+  if ((y < 0) || (y >= (int32_t)height))
+  {
+    return;
+  }
+
+  if (x0 > x1)
+  {
+    int32_t tmp = x0;
+    x0 = x1;
+    x1 = tmp;
+  }
+
+  if ((x1 < 0) || (x0 >= (int32_t)width))
+  {
+    return;
+  }
+
+  if (x0 < 0)
+  {
+    x0 = 0;
+  }
+  if (x1 >= (int32_t)width)
+  {
+    x1 = (int32_t)width - 1;
+  }
+
+  uint16_t span = (uint16_t)(x1 - x0 + 1);
+  renderDrawHLine((uint16_t)x0, (uint16_t)y, span, layer, state);
+}
+
+void renderDrawCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state)
+{
+  int32_t x = (int32_t)radius;
+  int32_t y = 0;
+  int32_t err = 0;
+
+  while (x >= y)
+  {
+    renderSetPixel((uint16_t)(x0 + x), (uint16_t)(y0 + y), layer, state);
+    renderSetPixel((uint16_t)(x0 + y), (uint16_t)(y0 + x), layer, state);
+    renderSetPixel((uint16_t)(x0 - y), (uint16_t)(y0 + x), layer, state);
+    renderSetPixel((uint16_t)(x0 - x), (uint16_t)(y0 + y), layer, state);
+    renderSetPixel((uint16_t)(x0 - x), (uint16_t)(y0 - y), layer, state);
+    renderSetPixel((uint16_t)(x0 - y), (uint16_t)(y0 - x), layer, state);
+    renderSetPixel((uint16_t)(x0 + y), (uint16_t)(y0 - x), layer, state);
+    renderSetPixel((uint16_t)(x0 + x), (uint16_t)(y0 - y), layer, state);
+
+    y++;
+    err += 1 + (2 * y);
+    if ((2 * (err - x)) + 1 > 0)
+    {
+      x--;
+      err += 1 - (2 * x);
+    }
+  }
+}
+
+void renderDrawCircleThick(uint16_t x0, uint16_t y0, uint16_t radius, uint16_t thickness, render_layer_t layer,
+                           render_state_t state)
+{
+  if (thickness <= 1U)
+  {
+    renderDrawCircle(x0, y0, radius, layer, state);
+    return;
+  }
+
+  if (radius == 0U)
+  {
+    renderSetPixel(x0, y0, layer, state);
+    return;
+  }
+
+  if (thickness >= (uint16_t)(radius + 1U))
+  {
+    renderFillCircle(x0, y0, radius, layer, state);
+    return;
+  }
+
+  int32_t inner = (int32_t)radius - (int32_t)thickness + 1;
+  if (inner < 0)
+  {
+    inner = 0;
+  }
+
+  for (int32_t r = (int32_t)radius; r >= inner; --r)
+  {
+    renderDrawCircle(x0, y0, (uint16_t)r, layer, state);
+  }
+}
+
+void renderFillCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state)
+{
+  int32_t x = (int32_t)radius;
+  int32_t y = 0;
+  int32_t err = 0;
+
+  while (x >= y)
+  {
+    renderDrawHLineClamped((int32_t)x0 - x, (int32_t)x0 + x, (int32_t)y0 + y, layer, state);
+    renderDrawHLineClamped((int32_t)x0 - x, (int32_t)x0 + x, (int32_t)y0 - y, layer, state);
+    renderDrawHLineClamped((int32_t)x0 - y, (int32_t)x0 + y, (int32_t)y0 + x, layer, state);
+    renderDrawHLineClamped((int32_t)x0 - y, (int32_t)x0 + y, (int32_t)y0 - x, layer, state);
+
+    y++;
+    err += 1 + (2 * y);
+    if ((2 * (err - x)) + 1 > 0)
+    {
+      x--;
+      err += 1 - (2 * x);
+    }
+  }
 }

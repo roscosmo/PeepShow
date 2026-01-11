@@ -690,7 +690,11 @@ Acceptance:
 - Only tskDisplay touches SPI3
 
 Implementation notes (Phase 1 display):
-- display_renderer owns the framebuffer in SRAM4 and tracks dirty rows via a per-row bitmask.
+- display_renderer owns the packed 1bpp buffer in SRAM4 and tracks dirty rows via a per-row bitmask.
+- display_renderer also owns an L8 working buffer (1 byte per pixel) in SRAM1; it packs dirty rows into the 1bpp buffer on flush.
+- L8 pixel layout: UI (2 bits), Game (2 bits), BG (1 bit), 2 spare bits, and 1 dirty bit; UI > Game > BG compositing.
+- Renderer supports rotation (default 270 CW) and exposes logical width/height via renderGetWidth/Height.
+- Primitives include pixel, H/V line, rect fill/outline, line, circle, filled circle, and thick line/circle variants.
 - tskDisplay builds a non-contiguous row list and flushes via LPDMA using the driver.
 - LS013B7DH05 is transport-only; it receives a buffer pointer for each flush.
 - DMA completion/error signals tskDisplay via thread flags (no polling loops).
