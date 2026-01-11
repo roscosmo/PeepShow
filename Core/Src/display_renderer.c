@@ -1,4 +1,5 @@
 #include "display_renderer.h"
+#include "font8x8_basic.h"
 
 #include <string.h>
 
@@ -17,6 +18,9 @@
 #define RENDER_BG_SHIFT 4U
 #define RENDER_BG_MASK (0x1U << RENDER_BG_SHIFT)
 #define RENDER_DIRTY_MASK (0x1U << 7U)
+
+static void renderDrawHLineClamped(int32_t x0, int32_t x1, int32_t y, render_layer_t layer, render_state_t state);
+static void renderDrawVLineClamped(int32_t x, int32_t y0, int32_t y1, render_layer_t layer, render_state_t state);
 
 /* Place framebuffer in SRAM4 for LPDMA access. */
 #if defined(__GNUC__)
@@ -739,12 +743,8 @@ void renderDrawLineThick(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uin
     return;
   }
 
-  uint16_t radius = (uint16_t)(thickness / 2U);
-  if (radius == 0U)
-  {
-    renderDrawLine(x0, y0, x1, y1, layer, state);
-    return;
-  }
+  int32_t r_lo = (int32_t)(thickness - 1U) / 2;
+  int32_t r_hi = (int32_t)thickness / 2;
 
   int32_t ix0 = (int32_t)x0;
   int32_t iy0 = (int32_t)y0;
@@ -757,23 +757,48 @@ void renderDrawLineThick(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uin
   int32_t sy = (iy0 < iy1) ? 1 : -1;
   int32_t err = dx - dy;
 
-  for (;;)
+  if (dx >= dy)
   {
-    renderFillCircle((uint16_t)ix0, (uint16_t)iy0, radius, layer, state);
-    if ((ix0 == ix1) && (iy0 == iy1))
+    for (;;)
     {
-      break;
+      renderDrawVLineClamped(ix0, (int32_t)iy0 - r_lo, (int32_t)iy0 + r_hi, layer, state);
+      if ((ix0 == ix1) && (iy0 == iy1))
+      {
+        break;
+      }
+      int32_t e2 = err * 2;
+      if (e2 > -dy)
+      {
+        err -= dy;
+        ix0 += sx;
+      }
+      if (e2 < dx)
+      {
+        err += dx;
+        iy0 += sy;
+      }
     }
-    int32_t e2 = err * 2;
-    if (e2 > -dy)
+  }
+  else
+  {
+    for (;;)
     {
-      err -= dy;
-      ix0 += sx;
-    }
-    if (e2 < dx)
-    {
-      err += dx;
-      iy0 += sy;
+      renderDrawHLineClamped((int32_t)ix0 - r_lo, (int32_t)ix0 + r_hi, iy0, layer, state);
+      if ((ix0 == ix1) && (iy0 == iy1))
+      {
+        break;
+      }
+      int32_t e2 = err * 2;
+      if (e2 > -dy)
+      {
+        err -= dy;
+        ix0 += sx;
+      }
+      if (e2 < dx)
+      {
+        err += dx;
+        iy0 += sy;
+      }
     }
   }
 }
@@ -812,6 +837,42 @@ static void renderDrawHLineClamped(int32_t x0, int32_t x1, int32_t y, render_lay
 
   uint16_t span = (uint16_t)(x1 - x0 + 1);
   renderDrawHLine((uint16_t)x0, (uint16_t)y, span, layer, state);
+}
+
+static void renderDrawVLineClamped(int32_t x, int32_t y0, int32_t y1, render_layer_t layer, render_state_t state)
+{
+  uint16_t width = 0U;
+  uint16_t height = 0U;
+  render_get_logical_dims(&width, &height);
+
+  if ((x < 0) || (x >= (int32_t)width))
+  {
+    return;
+  }
+
+  if (y0 > y1)
+  {
+    int32_t tmp = y0;
+    y0 = y1;
+    y1 = tmp;
+  }
+
+  if ((y1 < 0) || (y0 >= (int32_t)height))
+  {
+    return;
+  }
+
+  if (y0 < 0)
+  {
+    y0 = 0;
+  }
+  if (y1 >= (int32_t)height)
+  {
+    y1 = (int32_t)height - 1;
+  }
+
+  uint16_t span = (uint16_t)(y1 - y0 + 1);
+  renderDrawVLine((uint16_t)x, (uint16_t)y0, span, layer, state);
 }
 
 void renderDrawCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state)
@@ -893,6 +954,102 @@ void renderFillCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t 
     {
       x--;
       err += 1 - (2 * x);
+    }
+  }
+}
+
+void renderDrawChar(uint16_t x, uint16_t y, char ch, render_layer_t layer, render_state_t fg)
+{
+  uint8_t code = (uint8_t)ch;
+  if ((code < (uint8_t)FONT8X8_START_CHAR) || (code > (uint8_t)FONT8X8_END_CHAR))
+  {
+    code = (uint8_t)'?';
+  }
+
+  const uint8_t *glyph = font8x8_basic[code];
+  for (uint16_t row = 0U; row < (uint16_t)FONT8X8_HEIGHT; ++row)
+  {
+    uint8_t bits = glyph[row];
+    for (uint16_t col = 0U; col < (uint16_t)FONT8X8_WIDTH; ++col)
+    {
+      if ((bits & (uint8_t)(1U << col)) != 0U)
+      {
+        renderSetPixel((uint16_t)(x + col), (uint16_t)(y + row), layer, fg);
+      }
+    }
+  }
+}
+
+void renderDrawText(uint16_t x, uint16_t y, const char *text, render_layer_t layer, render_state_t fg)
+{
+  if (text == NULL)
+  {
+    return;
+  }
+
+  uint16_t width = renderGetWidth();
+  uint16_t height = renderGetHeight();
+  if ((width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  uint16_t cursor_x = x;
+  uint16_t cursor_y = y;
+  uint16_t advance_x = (uint16_t)(FONT8X8_WIDTH + 1U);
+  uint16_t advance_y = (uint16_t)(FONT8X8_HEIGHT + 1U);
+
+  for (const char *ptr = text; *ptr != '\0'; ++ptr)
+  {
+    if (*ptr == '\n')
+    {
+      cursor_x = x;
+      cursor_y = (uint16_t)(cursor_y + advance_y);
+      if (cursor_y >= height)
+      {
+        break;
+      }
+      continue;
+    }
+
+    renderDrawChar(cursor_x, cursor_y, *ptr, layer, fg);
+    cursor_x = (uint16_t)(cursor_x + advance_x);
+    if ((uint16_t)(cursor_x + FONT8X8_WIDTH) > width)
+    {
+      cursor_x = x;
+      cursor_y = (uint16_t)(cursor_y + advance_y);
+      if (cursor_y >= height)
+      {
+        break;
+      }
+    }
+  }
+}
+
+void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
+                    uint16_t stride_bytes, render_layer_t layer, render_state_t fg)
+{
+  if ((data == NULL) || (width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  if (stride_bytes == 0U)
+  {
+    stride_bytes = (uint16_t)((width + 7U) / 8U);
+  }
+
+  /* Sprite data is LSB-left; bit0 is the leftmost pixel in each byte. */
+  for (uint16_t row = 0U; row < height; ++row)
+  {
+    const uint8_t *row_ptr = &data[row * stride_bytes];
+    for (uint16_t col = 0U; col < width; ++col)
+    {
+      uint8_t byte = row_ptr[col >> 3U];
+      if ((byte & (uint8_t)(1U << (col & 7U))) != 0U)
+      {
+        renderSetPixel((uint16_t)(x + col), (uint16_t)(y + row), layer, fg);
+      }
     }
   }
 }

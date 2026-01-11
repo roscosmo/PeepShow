@@ -60,6 +60,10 @@ void renderDrawCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t 
 void renderDrawCircleThick(uint16_t x0, uint16_t y0, uint16_t radius, uint16_t thickness, render_layer_t layer,
                            render_state_t state);
 void renderFillCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state);
+void renderDrawChar(uint16_t x, uint16_t y, char ch, render_layer_t layer, render_state_t fg);
+void renderDrawText(uint16_t x, uint16_t y, const char *text, render_layer_t layer, render_state_t fg);
+void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
+                    uint16_t stride_bytes, render_layer_t layer, render_state_t fg);
 
 #ifdef __cplusplus
 }

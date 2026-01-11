@@ -601,20 +601,6 @@ static void app_input_process_event(const app_input_event_t *evt)
     return;
   }
 
-  if (evt->button_id == (uint8_t)APP_BUTTON_B)
-  {
-    if (evt->pressed != 0U)
-    {
-      app_sys_event_t sys_event = APP_SYS_EVENT_ENTER_GAME;
-      if ((mode_flags & APP_MODE_GAME) != 0U)
-      {
-        sys_event = APP_SYS_EVENT_EXIT_GAME;
-      }
-      (void)osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, 0U);
-    }
-    return;
-  }
-
   if ((mode_flags & APP_MODE_GAME) != 0U)
   {
     app_game_event_t game_event = g_input_last_flags;
@@ -625,15 +611,6 @@ static void app_input_process_event(const app_input_event_t *evt)
     else
     {
       g_input_game_drop_count++;
-    }
-    app_ui_event_t ui_event = g_input_last_flags;
-    if (osMessageQueuePut(qUIEventsHandle, &ui_event, 0U, 0U) == osOK)
-    {
-      g_input_event_count++;
-    }
-    else
-    {
-      g_input_ui_drop_count++;
     }
   }
   else

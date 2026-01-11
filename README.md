@@ -89,15 +89,13 @@ Wake → ~15s no interaction → Sleep (STOP2) → Wake on input/IRQ → repeat
 ### Voltage Level Translators
 - **VLT_LCD**  
   Controls the voltage level translator required for SPI3 communication with the Sharp Memory LCD.  
-  Active high.  
-  Configured as GPIO output, push-pull.  
-  Must be driven high before any display SPI transactions.
+  Active low.  
+  Inited high, must be driven low before any display SPI transactions.
 
 - **VLT_E5**  
   Controls the voltage level translator required for LPUART1 communication with the WIO E5 module.  
-  Active high.  
-  Configured as GPIO output, push-pull.  
-  Must be driven high before UART communication with the E5.
+  Active low.  
+  Inited high, must be driven low before UART communication with the E5.
 
 ---
 

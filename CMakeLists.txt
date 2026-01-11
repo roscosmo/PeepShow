@@ -55,9 +55,17 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/font8x8_basic.c
     Core/Src/display_task.c
     Core/Src/display_renderer.c
+    Core/Src/render_demo.c
+    Core/Src/ui_router.c
     Core/Src/ui_task.c
     Core/Src/game_task.c
 )
+
+# Speed up hot render paths.
+set_source_files_properties(Core/Src/render_demo.c PROPERTIES
+    COMPILE_FLAGS "-O3 -ffast-math -fno-math-errno -ffp-contract=fast")
+set_source_files_properties(Core/Src/display_renderer.c PROPERTIES
+    COMPILE_FLAGS "-O3 -ffast-math -fno-math-errno -ffp-contract=fast")
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
