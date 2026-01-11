@@ -61,6 +61,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/ui_router.c
     Core/Src/ui_task.c
     Core/Src/game_task.c
+    Core/Src/sensor_task.c
 )
 
 # Speed up hot render paths.

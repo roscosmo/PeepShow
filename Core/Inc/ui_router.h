@@ -11,13 +11,17 @@ extern "C" {
 typedef enum
 {
   UI_PAGE_MENU = 0,
-  UI_PAGE_HOME = 1
+  UI_PAGE_HOME = 1,
+  UI_PAGE_JOY_CAL = 2,
+  UI_PAGE_JOY_TARGET = 3
 } ui_page_t;
 
 typedef enum
 {
   UI_ROUTER_CMD_NONE = 0,
-  UI_ROUTER_CMD_START_RENDER_DEMO = 1
+  UI_ROUTER_CMD_START_RENDER_DEMO = 1,
+  UI_ROUTER_CMD_OPEN_JOY_CAL = 2,
+  UI_ROUTER_CMD_OPEN_JOY_TARGET = 3
 } ui_router_cmd_t;
 
 void ui_router_init(void);

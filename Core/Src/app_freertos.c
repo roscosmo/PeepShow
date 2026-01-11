@@ -26,6 +26,7 @@
 #include "display_task.h"
 #include "ui_task.h"
 #include "game_task.h"
+#include "sensor_task.h"
 
 /* USER CODE END Includes */
 
@@ -464,13 +465,8 @@ void StartTaskPower(void *argument)
 void StartTaskSensor(void *argument)
 {
   /* USER CODE BEGIN tskSensor */
-  app_sensor_req_t req = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    (void)osMessageQueueGet(qSensorReqHandle, &req, NULL, osWaitForever);
-  }
+  sensor_task_run();
   /* USER CODE END tskSensor */
 }
 
