@@ -21,19 +21,39 @@ typedef enum
   AUDIO_MODE_NONE = 0,
   AUDIO_MODE_TONE,
   AUDIO_MODE_CLICK_TONE,
-  AUDIO_MODE_CLICK_WAV
+  AUDIO_MODE_CLICK_WAV,
+  AUDIO_MODE_MUSIC_ADPCM
 } audio_mode_t;
+
+typedef enum
+{
+  WAV_FORMAT_PCM = 1U,
+  WAV_FORMAT_IMA_ADPCM = 0x11U
+} wav_format_t;
 
 typedef struct
 {
   const uint8_t *data;
   uint32_t data_bytes;
   uint32_t sample_rate;
+  wav_format_t format;
   uint32_t total_frames;
   uint16_t channels;
   uint16_t bits_per_sample;
   uint16_t block_align;
+  uint16_t samples_per_block;
 } wav_info_t;
+
+typedef struct
+{
+  uint32_t data_offset;
+  uint32_t block_end;
+  uint32_t byte_offset;
+  uint16_t samples_left;
+  int16_t predictor;
+  uint8_t index;
+  uint8_t nibble_high;
+} adpcm_state_t;
 
 static const uint32_t kAudioFlagHalf = (1UL << 0U);
 static const uint32_t kAudioFlagFull = (1UL << 1U);
@@ -45,6 +65,28 @@ static const float kAudioClickHz = 2000.0f;
 static const uint32_t kAudioClickMs = 25U;
 static const uint8_t kAudioVolumeMax = 10U;
 static const uint8_t kAudioVolumeDefault = 7U;
+
+static const int16_t kImaStepTable[89] =
+{
+  7, 8, 9, 10, 11, 12, 13, 14,
+  16, 17, 19, 21, 23, 25, 28, 31,
+  34, 37, 41, 45, 50, 55, 60, 66,
+  73, 80, 88, 97, 107, 118, 130, 143,
+  157, 173, 190, 209, 230, 253, 279, 307,
+  337, 371, 408, 449, 494, 544, 598, 658,
+  724, 796, 876, 963, 1060, 1166, 1282, 1411,
+  1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024,
+  3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484,
+  7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
+  15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+  32767
+};
+
+static const int8_t kImaIndexTable[16] =
+{
+  -1, -1, -1, -1, 2, 4, 6, 8,
+  -1, -1, -1, -1, 2, 4, 6, 8
+};
 
 static int16_t s_audio_buf[2048];
 static uint32_t s_phase_q16 = 0U;
@@ -58,7 +100,15 @@ static wav_info_t s_click_wav;
 static uint8_t s_wav_state = 0U;
 static uint32_t s_wav_pos_q16 = 0U;
 static uint32_t s_wav_step_q16 = 0U;
+static wav_info_t s_music_wav;
+static uint8_t s_music_state = 0U;
+static uint8_t s_music_done = 0U;
+static adpcm_state_t s_music_adpcm;
 static volatile uint8_t s_audio_volume = kAudioVolumeDefault;
+static uint8_t s_audio_power_ref = 0U;
+static uint8_t s_audio_dma_circular = 0U;
+static DMA_QListTypeDef s_audio_dma_queue;
+static DMA_NodeTypeDef s_audio_dma_node;
 
 static uint16_t audio_read_u16_le(const uint8_t *data)
 {
@@ -101,6 +151,8 @@ static uint8_t audio_parse_wav(const uint8_t *data, uint32_t len, wav_info_t *ou
   uint32_t fmt_rate = 0U;
   uint16_t fmt_align = 0U;
   uint16_t fmt_bits = 0U;
+  uint16_t fmt_cb_size = 0U;
+  uint16_t fmt_samples_per_block = 0U;
   const uint8_t *data_ptr = NULL;
   uint32_t data_bytes = 0U;
   uint32_t offset = 12U;
@@ -127,6 +179,17 @@ static uint8_t audio_parse_wav(const uint8_t *data, uint32_t len, wav_info_t *ou
       fmt_rate = audio_read_u32_le(&data[offset + 4U]);
       fmt_align = audio_read_u16_le(&data[offset + 12U]);
       fmt_bits = audio_read_u16_le(&data[offset + 14U]);
+      if (chunk_size >= 18U)
+      {
+        fmt_cb_size = audio_read_u16_le(&data[offset + 16U]);
+      }
+      if ((fmt_audio == (uint16_t)WAV_FORMAT_IMA_ADPCM) && (chunk_size >= 20U))
+      {
+        if (fmt_cb_size >= 2U)
+        {
+          fmt_samples_per_block = audio_read_u16_le(&data[offset + 18U]);
+        }
+      }
       found_fmt = 1U;
     }
     else if (audio_match_fourcc(chunk, 'd', 'a', 't', 'a'))
@@ -148,16 +211,6 @@ static uint8_t audio_parse_wav(const uint8_t *data, uint32_t len, wav_info_t *ou
     return 0U;
   }
 
-  if (fmt_audio != 1U)
-  {
-    return 0U;
-  }
-
-  if ((fmt_bits != 8U) && (fmt_bits != 16U))
-  {
-    return 0U;
-  }
-
   if ((fmt_channels == 0U) || (fmt_channels > 2U))
   {
     return 0U;
@@ -173,20 +226,79 @@ static uint8_t audio_parse_wav(const uint8_t *data, uint32_t len, wav_info_t *ou
     return 0U;
   }
 
-  uint32_t frames = data_bytes / (uint32_t)fmt_align;
-  if ((frames == 0U) || (data_ptr == NULL))
+  if (data_ptr == NULL)
   {
     return 0U;
   }
 
-  out->data = data_ptr;
-  out->data_bytes = data_bytes;
-  out->sample_rate = fmt_rate;
-  out->total_frames = frames;
-  out->channels = fmt_channels;
-  out->bits_per_sample = fmt_bits;
-  out->block_align = fmt_align;
-  return 1U;
+  if (fmt_audio == (uint16_t)WAV_FORMAT_PCM)
+  {
+    if ((fmt_bits != 8U) && (fmt_bits != 16U))
+    {
+      return 0U;
+    }
+
+    uint32_t frames = data_bytes / (uint32_t)fmt_align;
+    if (frames == 0U)
+    {
+      return 0U;
+    }
+
+    out->format = WAV_FORMAT_PCM;
+    out->data = data_ptr;
+    out->data_bytes = data_bytes;
+    out->sample_rate = fmt_rate;
+    out->total_frames = frames;
+    out->channels = fmt_channels;
+    out->bits_per_sample = fmt_bits;
+    out->block_align = fmt_align;
+    out->samples_per_block = 0U;
+    return 1U;
+  }
+
+  if (fmt_audio == (uint16_t)WAV_FORMAT_IMA_ADPCM)
+  {
+    if (fmt_channels != 1U)
+    {
+      return 0U;
+    }
+    if (fmt_bits != 4U)
+    {
+      return 0U;
+    }
+    if (fmt_align <= 4U)
+    {
+      return 0U;
+    }
+    if (fmt_samples_per_block == 0U)
+    {
+      fmt_samples_per_block = (uint16_t)(((fmt_align - 4U) * 2U) + 1U);
+    }
+    if (fmt_samples_per_block == 0U)
+    {
+      return 0U;
+    }
+
+    uint32_t block_count = data_bytes / (uint32_t)fmt_align;
+    uint32_t total_samples = block_count * (uint32_t)fmt_samples_per_block;
+    if (total_samples == 0U)
+    {
+      return 0U;
+    }
+
+    out->format = WAV_FORMAT_IMA_ADPCM;
+    out->data = data_ptr;
+    out->data_bytes = data_bytes;
+    out->sample_rate = fmt_rate;
+    out->total_frames = total_samples;
+    out->channels = fmt_channels;
+    out->bits_per_sample = fmt_bits;
+    out->block_align = fmt_align;
+    out->samples_per_block = fmt_samples_per_block;
+    return 1U;
+  }
+
+  return 0U;
 }
 
 static uint8_t audio_wav_prepare(void)
@@ -213,6 +325,170 @@ static uint8_t audio_wav_prepare(void)
   }
 
   s_wav_state = 1U;
+  return 1U;
+}
+
+static uint8_t audio_music_prepare(void)
+{
+  if (s_music_state == 1U)
+  {
+    return 1U;
+  }
+  if (s_music_state == 2U)
+  {
+    return 0U;
+  }
+
+  if (audio_parse_wav((const uint8_t *)musicWav, (uint32_t)sizeof(musicWav), &s_music_wav) == 0U)
+  {
+    s_music_state = 2U;
+    return 0U;
+  }
+
+  if ((s_music_wav.format != WAV_FORMAT_IMA_ADPCM) ||
+      (s_music_wav.sample_rate != kAudioSampleRate) ||
+      (s_music_wav.channels != 1U))
+  {
+    s_music_state = 2U;
+    return 0U;
+  }
+
+  s_music_state = 1U;
+  return 1U;
+}
+
+static void audio_adpcm_reset(adpcm_state_t *state)
+{
+  if (state == NULL)
+  {
+    return;
+  }
+
+  state->data_offset = 0U;
+  state->block_end = 0U;
+  state->byte_offset = 0U;
+  state->samples_left = 0U;
+  state->predictor = 0;
+  state->index = 0U;
+  state->nibble_high = 0U;
+}
+
+static uint8_t audio_adpcm_begin_block(const wav_info_t *wav, adpcm_state_t *state)
+{
+  if ((wav == NULL) || (state == NULL))
+  {
+    return 0U;
+  }
+
+  if ((state->data_offset + wav->block_align) > wav->data_bytes)
+  {
+    return 0U;
+  }
+
+  const uint8_t *block = &wav->data[state->data_offset];
+  state->predictor = (int16_t)audio_read_u16_le(block);
+  state->index = block[2];
+  if (state->index > 88U)
+  {
+    state->index = 88U;
+  }
+  state->byte_offset = state->data_offset + 4U;
+  state->block_end = state->data_offset + wav->block_align;
+  state->samples_left = wav->samples_per_block;
+  state->nibble_high = 0U;
+  state->data_offset = state->block_end;
+  return 1U;
+}
+
+static uint8_t audio_adpcm_next_sample(const wav_info_t *wav, adpcm_state_t *state, int16_t *out)
+{
+  if ((wav == NULL) || (state == NULL) || (out == NULL))
+  {
+    return 0U;
+  }
+
+  if (state->samples_left == 0U)
+  {
+    if (audio_adpcm_begin_block(wav, state) == 0U)
+    {
+      return 0U;
+    }
+  }
+
+  if (state->samples_left == wav->samples_per_block)
+  {
+    state->samples_left--;
+    *out = state->predictor;
+    return 1U;
+  }
+
+  if (state->byte_offset >= state->block_end)
+  {
+    state->samples_left = 0U;
+    return 0U;
+  }
+
+  uint8_t code;
+  if (state->nibble_high == 0U)
+  {
+    code = wav->data[state->byte_offset] & 0x0FU;
+    state->nibble_high = 1U;
+  }
+  else
+  {
+    code = (wav->data[state->byte_offset] >> 4) & 0x0FU;
+    state->nibble_high = 0U;
+    state->byte_offset++;
+  }
+
+  int32_t predictor = state->predictor;
+  int32_t step = kImaStepTable[state->index];
+  int32_t diff = step >> 3;
+  if ((code & 1U) != 0U)
+  {
+    diff += step >> 2;
+  }
+  if ((code & 2U) != 0U)
+  {
+    diff += step >> 1;
+  }
+  if ((code & 4U) != 0U)
+  {
+    diff += step;
+  }
+  if ((code & 8U) != 0U)
+  {
+    predictor -= diff;
+  }
+  else
+  {
+    predictor += diff;
+  }
+
+  if (predictor > 32767)
+  {
+    predictor = 32767;
+  }
+  else if (predictor < -32768)
+  {
+    predictor = -32768;
+  }
+
+  state->predictor = (int16_t)predictor;
+
+  int32_t index = (int32_t)state->index + (int32_t)kImaIndexTable[code];
+  if (index < 0)
+  {
+    index = 0;
+  }
+  else if (index > 88)
+  {
+    index = 88;
+  }
+  state->index = (uint8_t)index;
+
+  state->samples_left--;
+  *out = state->predictor;
   return 1U;
 }
 
@@ -261,6 +537,131 @@ static int16_t audio_apply_volume(int32_t sample)
   return (int16_t)scaled;
 }
 
+static void audio_request_power_on(void)
+{
+  if (s_audio_power_ref != 0U)
+  {
+    return;
+  }
+
+  if (qSysEventsHandle == NULL)
+  {
+    return;
+  }
+
+  app_sys_event_t sys_event = APP_SYS_EVENT_AUDIO_ON;
+  if (osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, osWaitForever) == osOK)
+  {
+    s_audio_power_ref = 1U;
+  }
+}
+
+static void audio_request_power_off(void)
+{
+  if (s_audio_power_ref == 0U)
+  {
+    return;
+  }
+
+  if (qSysEventsHandle == NULL)
+  {
+    s_audio_power_ref = 0U;
+    return;
+  }
+
+  app_sys_event_t sys_event = APP_SYS_EVENT_AUDIO_OFF;
+  if (osMessageQueuePut(qSysEventsHandle, &sys_event, 0U, osWaitForever) == osOK)
+  {
+    s_audio_power_ref = 0U;
+  }
+}
+
+static uint8_t audio_configure_dma_circular(void)
+{
+  if (hsai_BlockA1.hdmatx == NULL)
+  {
+    return 0U;
+  }
+
+  if (s_audio_dma_circular != 0U)
+  {
+    return 1U;
+  }
+
+  DMA_HandleTypeDef *hdma = hsai_BlockA1.hdmatx;
+  DMA_NodeConfTypeDef node_conf = {0};
+
+  (void)HAL_DMA_Abort(hdma);
+
+  hdma->InitLinkedList.Priority = hdma->Init.Priority;
+  hdma->InitLinkedList.LinkStepMode = DMA_LSM_FULL_EXECUTION;
+  hdma->InitLinkedList.LinkAllocatedPort = DMA_LINK_ALLOCATED_PORT0;
+  hdma->InitLinkedList.TransferEventMode = hdma->Init.TransferEventMode;
+  hdma->InitLinkedList.LinkedListMode = DMA_LINKEDLIST_CIRCULAR;
+
+  if (HAL_DMAEx_List_Init(hdma) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  s_audio_dma_queue.Type = QUEUE_TYPE_STATIC;
+  if (HAL_DMAEx_List_ResetQ(&s_audio_dma_queue) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  node_conf.NodeType = DMA_GPDMA_LINEAR_NODE;
+  node_conf.Init = hdma->Init;
+  node_conf.DataHandlingConfig.DataExchange = DMA_EXCHANGE_NONE;
+  node_conf.DataHandlingConfig.DataAlignment = DMA_DATA_RIGHTALIGN_ZEROPADDED;
+  node_conf.TriggerConfig.TriggerMode = DMA_TRIGM_BLOCK_TRANSFER;
+  node_conf.TriggerConfig.TriggerPolarity = DMA_TRIG_POLARITY_MASKED;
+  node_conf.TriggerConfig.TriggerSelection = 0U;
+  node_conf.RepeatBlockConfig.RepeatCount = 1U;
+  node_conf.RepeatBlockConfig.SrcAddrOffset = 0;
+  node_conf.RepeatBlockConfig.DestAddrOffset = 0;
+  node_conf.RepeatBlockConfig.BlkSrcAddrOffset = 0;
+  node_conf.RepeatBlockConfig.BlkDestAddrOffset = 0;
+  node_conf.SrcAddress = (uint32_t)s_audio_buf;
+  node_conf.DstAddress = (uint32_t)&hsai_BlockA1.Instance->DR;
+  node_conf.DataSize = (uint32_t)sizeof(s_audio_buf);
+
+  if (HAL_DMAEx_List_BuildNode(&node_conf, &s_audio_dma_node) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  if (HAL_DMAEx_List_InsertNode_Tail(&s_audio_dma_queue, &s_audio_dma_node) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  if (HAL_DMAEx_List_SetCircularMode(&s_audio_dma_queue) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  if (HAL_DMAEx_List_LinkQ(hdma, &s_audio_dma_queue) != HAL_OK)
+  {
+    hdma->Init.Mode = DMA_NORMAL;
+    (void)HAL_DMA_Init(hdma);
+    return 0U;
+  }
+
+  s_audio_dma_circular = 1U;
+  return 1U;
+}
+
 static void audio_fill(int16_t *dst, uint32_t count)
 {
   if ((dst == NULL) || (count == 0U))
@@ -306,6 +707,24 @@ static void audio_fill(int16_t *dst, uint32_t count)
     return;
   }
 
+  if (s_audio_mode == AUDIO_MODE_MUSIC_ADPCM)
+  {
+    uint32_t frames = count / 2U;
+    for (uint32_t i = 0U; i < frames; ++i)
+    {
+      int16_t pcm = 0;
+      if (audio_adpcm_next_sample(&s_music_wav, &s_music_adpcm, &pcm) == 0U)
+      {
+        s_music_done = 1U;
+        pcm = 0;
+      }
+      pcm = audio_apply_volume((int32_t)pcm);
+      dst[i * 2U] = pcm;
+      dst[i * 2U + 1U] = pcm;
+    }
+    return;
+  }
+
   if ((s_audio_mode == AUDIO_MODE_TONE) || (s_audio_mode == AUDIO_MODE_CLICK_TONE))
   {
     const float two_pi = 6.28318530718f;
@@ -345,6 +764,8 @@ static void audio_start(void)
   audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
 
   (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
+  (void)audio_configure_dma_circular();
+  audio_request_power_on();
   HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
 
   if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
@@ -355,6 +776,7 @@ static void audio_start(void)
   else
   {
     HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
+    audio_request_power_off();
   }
 }
 
@@ -371,7 +793,10 @@ static void audio_stop(void)
   s_click_active = 0U;
   s_click_stop_ms = 0U;
   s_click_done = 0U;
+  s_music_done = 0U;
+  audio_adpcm_reset(&s_music_adpcm);
   s_audio_mode = AUDIO_MODE_NONE;
+  audio_request_power_off();
 }
 
 static void audio_click_start(void)
@@ -402,6 +827,8 @@ static void audio_click_start(void)
   audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
 
   (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
+  (void)audio_configure_dma_circular();
+  audio_request_power_on();
   HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
 
   if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
@@ -415,6 +842,49 @@ static void audio_click_start(void)
     s_click_active = 0U;
     s_click_done = 0U;
     s_audio_mode = AUDIO_MODE_NONE;
+    audio_request_power_off();
+  }
+}
+
+static void audio_music_start(void)
+{
+  if ((s_audio_state == AUDIO_STATE_PLAYING) && (s_audio_mode == AUDIO_MODE_MUSIC_ADPCM))
+  {
+    audio_stop();
+    return;
+  }
+
+  if (s_audio_state == AUDIO_STATE_PLAYING)
+  {
+    audio_stop();
+  }
+
+  if (audio_music_prepare() == 0U)
+  {
+    return;
+  }
+
+  s_music_done = 0U;
+  audio_adpcm_reset(&s_music_adpcm);
+  s_audio_mode = AUDIO_MODE_MUSIC_ADPCM;
+
+  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
+
+  (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
+  (void)audio_configure_dma_circular();
+  audio_request_power_on();
+  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
+
+  if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
+                           (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]))) == HAL_OK)
+  {
+    s_audio_state = AUDIO_STATE_PLAYING;
+  }
+  else
+  {
+    HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
+    s_audio_mode = AUDIO_MODE_NONE;
+    audio_request_power_off();
   }
 }
 
@@ -426,6 +896,11 @@ void audio_task_run(void)
   {
     if (s_audio_state == AUDIO_STATE_PLAYING)
     {
+      if ((s_audio_mode == AUDIO_MODE_MUSIC_ADPCM) && (s_music_done != 0U))
+      {
+        audio_stop();
+        continue;
+      }
       if (s_click_active != 0U)
       {
         if (s_audio_mode == AUDIO_MODE_CLICK_WAV)
@@ -459,15 +934,18 @@ void audio_task_run(void)
         {
           audio_fill(&s_audio_buf[sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U],
                      (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U));
-          (void)HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
-                                     (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
+          if (s_audio_dma_circular == 0U)
+          {
+            (void)HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
+                                       (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
+          }
         }
         if (((uint32_t)flags & kAudioFlagError) != 0U)
         {
           audio_stop();
         }
       }
-      else if (hsai_BlockA1.State == HAL_SAI_STATE_READY)
+      else if ((s_audio_dma_circular == 0U) && (hsai_BlockA1.State == HAL_SAI_STATE_READY))
       {
         (void)HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
                                    (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
@@ -502,6 +980,9 @@ void audio_task_run(void)
         break;
       case APP_AUDIO_CMD_KEYCLICK:
         audio_click_start();
+        break;
+      case APP_AUDIO_CMD_MUSIC_TOGGLE:
+        audio_music_start();
         break;
       default:
         break;

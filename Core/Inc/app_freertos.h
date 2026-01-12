@@ -109,10 +109,15 @@ extern volatile uint32_t g_sys_event_count;
 
 #define APP_MODE_UI             (1UL << 0U)
 #define APP_MODE_GAME           (1UL << 1U)
+#define APP_DEBUG_MODE          (1UL << 0U)
 
 #define APP_SYS_EVENT_BOOT_BUTTON (1UL)
 #define APP_SYS_EVENT_ENTER_GAME  (1UL << 1U)
 #define APP_SYS_EVENT_EXIT_GAME   (1UL << 2U)
+#define APP_SYS_EVENT_AUDIO_ON    (1UL << 3U)
+#define APP_SYS_EVENT_AUDIO_OFF   (1UL << 4U)
+#define APP_SYS_EVENT_DEBUG_ON    (1UL << 5U)
+#define APP_SYS_EVENT_DEBUG_OFF   (1UL << 6U)
 #define APP_DISPLAY_CMD_TOGGLE    (1UL)
 #define APP_DISPLAY_CMD_RENDER_DEMO (2UL)
 #define APP_DISPLAY_CMD_INVALIDATE (3UL)
@@ -136,6 +141,7 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_AUDIO_CMD_TOGGLE_TONE      (1UL << 0U)
 #define APP_AUDIO_CMD_STOP             (1UL << 1U)
 #define APP_AUDIO_CMD_KEYCLICK         (1UL << 2U)
+#define APP_AUDIO_CMD_MUSIC_TOGGLE     (1UL << 3U)
 #define APP_UI_DEMO_BUTTON APP_BUTTON_R
 #define APP_GAME_DEMO_BUTTON APP_BUTTON_R
 

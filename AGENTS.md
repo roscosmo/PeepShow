@@ -4,9 +4,11 @@ Hello agent! Here's some instructions for you to follow so we can develop this p
 
 # ABSOLUTE RULE: CLI / SHELL USAGE (READ CAREFULLY)
 
-Minimize command-line (CLI) where you can. Assume they are expensive and slow.
-DO NOT make assumptions based off a lack of knowledge however.
+Minimize command-line (CLI) whereever possible. 
+DO NOT make assumptions based off a lack of knowledge, however.
 Accuracy is foremost.
+If requirements are unclear, pause and ask instead of guessing.
+The user is here to help you too, they can debug and get information to make your job easier.
 
 
 

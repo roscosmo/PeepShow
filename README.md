@@ -787,17 +787,27 @@ Implementation notes (Phase 5 storage):
 ## Phase 6 — Audio + Clock Refcount Policy (awake-mode)
 Goal: audio stable, clocks controlled centrally.
 
-- [ ] Implement tskPower refcount handling for:
+- [x] Implement tskPower refcount handling for:
   - audio_ref
   - debug_ref
-- [ ] tskAudio requests AUDIO_ON before starting SAI
-- [ ] tskAudio requests AUDIO_OFF after stopping
-- [ ] Verify amp SD_MODE behavior
+- [x] tskAudio requests AUDIO_ON before starting SAI
+- [x] tskAudio requests AUDIO_OFF after stopping
+- [x] Verify amp SD_MODE behavior (music test playback clean)
 
 Acceptance:
 - Audio starts/stops repeatedly without hang
 - HSI/PLL2 enabled only when needed
 - No clock toggles outside tskPower
+
+Implementation notes (Phase 6 audio):
+- `tskAudio` runs in `Core/Src/audio_task.c` and consumes `qAudioCmd` (keyclick/tone/stop).
+- Audio playback uses SAI1 TX DMA with a static buffer; DMA half/full/error callbacks signal via thread flags.
+- SAI TX DMA uses a GPDMA linked-list circular node configured in `Core/Src/audio_task.c` to avoid rearm gaps on long playback.
+- Keyclick uses embedded `menuBeep` WAV from `Core/Inc/sounds.h` with a tone fallback; volume is applied via `audio_set_volume` and settings UI.
+- Music test uses IMA ADPCM `Assets/music.wav` embedded as `musicWav` in `Core/Inc/sounds.h`; game mode `APP_BUTTON_B` toggles playback.
+- SD_MODE is driven high on start and low on stop/error; GPIO init sets it low at boot in `Core/Src/main.c`.
+- `tskAudio` now posts AUDIO_ON/OFF sys events; `tskPower` tracks `audio_ref` and `debug_ref` and updates `egDebug`.
+- PLL2 gating is deferred: refcounts are tracked, but PLL2 remains always on for now.
 
 ---
 

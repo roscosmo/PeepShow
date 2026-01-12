@@ -53,6 +53,8 @@ typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN Variables */
 static const uint32_t kButtonDebounceMs = 20U;
 static uint32_t s_btn_last_tick[APP_BUTTON_COUNT];
+static uint8_t s_audio_ref = 0U;
+static uint8_t s_debug_ref = 0U;
 
 volatile uint32_t g_input_task_started = 0U;
 volatile uint32_t g_input_last_flags = 0U;
@@ -435,23 +437,83 @@ void StartTaskPower(void *argument)
   /* USER CODE BEGIN tskPower */
   app_sys_event_t sys_event = 0U;
   (void)argument;
+
+#if DEBUGGING
+  if (s_debug_ref == 0U)
+  {
+    s_debug_ref = 1U;
+  }
+#endif
+  if (egDebugHandle != NULL)
+  {
+    if (s_debug_ref > 0U)
+    {
+      (void)osEventFlagsSet(egDebugHandle, APP_DEBUG_MODE);
+    }
+    else
+    {
+      (void)osEventFlagsClear(egDebugHandle, APP_DEBUG_MODE);
+    }
+  }
   /* Infinite loop */
   for(;;)
   {
     if (osMessageQueueGet(qSysEventsHandle, &sys_event, NULL, osWaitForever) == osOK)
     {
       g_sys_event_count++;
-      if (egModeHandle != NULL)
+      switch (sys_event)
       {
-        if (sys_event == APP_SYS_EVENT_ENTER_GAME)
+        case APP_SYS_EVENT_ENTER_GAME:
+          if (egModeHandle != NULL)
+          {
+            (void)osEventFlagsClear(egModeHandle, APP_MODE_UI);
+            (void)osEventFlagsSet(egModeHandle, APP_MODE_GAME);
+          }
+          break;
+        case APP_SYS_EVENT_EXIT_GAME:
+          if (egModeHandle != NULL)
+          {
+            (void)osEventFlagsClear(egModeHandle, APP_MODE_GAME);
+            (void)osEventFlagsSet(egModeHandle, APP_MODE_UI);
+          }
+          break;
+        case APP_SYS_EVENT_AUDIO_ON:
+          if (s_audio_ref < 0xFFU)
+          {
+            s_audio_ref++;
+          }
+          break;
+        case APP_SYS_EVENT_AUDIO_OFF:
+          if (s_audio_ref > 0U)
+          {
+            s_audio_ref--;
+          }
+          break;
+        case APP_SYS_EVENT_DEBUG_ON:
+          if (s_debug_ref < 0xFFU)
+          {
+            s_debug_ref++;
+          }
+          break;
+        case APP_SYS_EVENT_DEBUG_OFF:
+          if (s_debug_ref > 0U)
+          {
+            s_debug_ref--;
+          }
+          break;
+        default:
+          break;
+      }
+
+      if (egDebugHandle != NULL)
+      {
+        if (s_debug_ref > 0U)
         {
-          (void)osEventFlagsClear(egModeHandle, APP_MODE_UI);
-          (void)osEventFlagsSet(egModeHandle, APP_MODE_GAME);
+          (void)osEventFlagsSet(egDebugHandle, APP_DEBUG_MODE);
         }
-        else if (sys_event == APP_SYS_EVENT_EXIT_GAME)
+        else
         {
-          (void)osEventFlagsClear(egModeHandle, APP_MODE_GAME);
-          (void)osEventFlagsSet(egModeHandle, APP_MODE_UI);
+          (void)osEventFlagsClear(egDebugHandle, APP_DEBUG_MODE);
         }
       }
     }
