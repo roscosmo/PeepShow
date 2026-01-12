@@ -175,13 +175,6 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
         s_menu_depth--;
         render = true;
       }
-      else
-      {
-        if (out_action != NULL)
-        {
-          *out_action = UI_ROUTER_ACTION_EXIT_MENU;
-        }
-      }
     }
   }
   else if ((s_page != NULL) && (s_page->event != NULL))

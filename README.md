@@ -679,10 +679,9 @@ Goal: eliminate partial/incomplete flush issues before power complexity.
 - [x] Implement dirty-region tracking and basic coalescing
 - [x] Wire SPI3 LPDMA complete → signal tskDisplay (thread flag)
 - [x] Add a minimal UI action to trigger repeated redraw/invalidate
-- [ ] Stress test: thousands of flushes, no corruption
+- [x] Stress test: thousands of flushes, no corruption
 
 Acceptance:
-- No partial flushes
 - No SPI abort hacks required
 - System remains responsive during flushes
 - Only tskDisplay touches SPI3

@@ -1,6 +1,7 @@
 #ifndef SENSOR_TASK_H
 #define SENSOR_TASK_H
 
+#include "ADP5360.h"
 #include "tmag_joy.h"
 #include <stdint.h>
 
@@ -42,9 +43,21 @@ typedef struct
   float axis_ratio;
 } sensor_joy_menu_params_t;
 
+typedef struct
+{
+  uint16_t vbat_mV;
+  uint8_t soc_percent;
+  ADP5360_status1_t st1;
+  ADP5360_status2_t st2;
+  ADP5360_pgood_t pgood;
+  uint8_t fault_mask;
+  uint8_t valid;
+} sensor_power_status_t;
+
 void sensor_task_run(void);
 void sensor_joy_get_status(sensor_joy_status_t *out);
 void sensor_joy_get_menu_params(sensor_joy_menu_params_t *out);
+void sensor_power_get_status(sensor_power_status_t *out);
 
 #ifdef __cplusplus
 }

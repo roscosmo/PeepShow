@@ -69,6 +69,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/page_joy_cursor.c
     Core/Src/page_sound.c
     Core/Src/page_menu_input.c
+    Core/Src/page_batt_stats.c
     Core/Src/game_task.c
     Core/Src/sensor_task.c
     Core/Src/audio_task.c

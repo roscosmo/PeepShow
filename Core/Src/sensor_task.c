@@ -3,6 +3,7 @@
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "tmag5273.h"
+#include "ADP5360.h"
 
 #include <math.h>
 #include <string.h>
@@ -63,6 +64,9 @@ static sensor_joy_status_t s_status;
 static sensor_joy_cal_t s_cal;
 static uint8_t s_menu_nav_enabled = 0U;
 static uint8_t s_monitor_enabled = 0U;
+static sensor_power_status_t s_power_status;
+static uint8_t s_power_stats_enabled = 0U;
+static uint32_t s_power_last_ms = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
 static const uint32_t kJoyCalNeutralMs = 1500U;
@@ -78,6 +82,7 @@ static const float kJoyCalDirMinMax = 12.0f;
 
 static const uint32_t kJoyMonitorTickMs = 100U;
 static const uint32_t kJoyCalTickMs = 10U;
+static const uint32_t kPowerStatsTickMs = 1000U;
 
 static float s_menu_press_norm = 0.45f;
 static float s_menu_release_norm = 0.25f;
@@ -94,6 +99,8 @@ static const float kJoyMenuPressStep = 0.05f;
 static const float kJoyMenuReleaseStep = 0.05f;
 static const float kJoyMenuAxisStep = 0.1f;
 static const float kJoyMenuHystMin = 0.05f;
+
+static bool sensor_is_ui_mode(void);
 
 static float sensor_clampf(float v, float lo, float hi)
 {
@@ -151,6 +158,83 @@ static void sensor_joy_status_reset(void)
   s_status.sx_mT = 1.0f;
   s_status.sy_mT = 1.0f;
   sensor_joy_cal_reset();
+}
+
+static void sensor_power_status_reset(void)
+{
+  (void)memset(&s_power_status, 0, sizeof(s_power_status));
+  s_power_status.valid = 0U;
+  s_power_last_ms = 0U;
+}
+
+static void sensor_power_set_enabled(uint8_t enable)
+{
+  s_power_stats_enabled = enable ? 1U : 0U;
+  if (s_power_stats_enabled != 0U)
+  {
+    s_power_last_ms = 0U;
+    s_power_status.valid = 0U;
+  }
+}
+
+static void sensor_power_update(uint32_t now_ms)
+{
+  if ((s_power_stats_enabled == 0U) || !sensor_is_ui_mode())
+  {
+    return;
+  }
+
+  if ((s_power_last_ms != 0U) && ((now_ms - s_power_last_ms) < kPowerStatsTickMs))
+  {
+    return;
+  }
+
+  s_power_last_ms = now_ms;
+
+  uint16_t vbat_mV = 0U;
+  uint16_t raw12 = 0U;
+  uint8_t soc_percent = 0U;
+  uint8_t raw7 = 0U;
+  ADP5360_status1_t st1 = {0};
+  ADP5360_status2_t st2 = {0};
+  ADP5360_pgood_t pgood = {0};
+  uint8_t raw_pgood = 0U;
+  uint8_t fault_mask = 0U;
+  uint8_t ok = 1U;
+
+  if (ADP5360_get_vbat(&vbat_mV, &raw12) != HAL_OK)
+  {
+    ok = 0U;
+  }
+  if (ADP5360_get_soc(&soc_percent, &raw7) != HAL_OK)
+  {
+    ok = 0U;
+  }
+  if (ADP5360_get_status1(&st1) != HAL_OK)
+  {
+    ok = 0U;
+  }
+  if (ADP5360_get_status2(&st2) != HAL_OK)
+  {
+    ok = 0U;
+  }
+  (void)ADP5360_get_pgood(&pgood, &raw_pgood);
+  (void)ADP5360_get_fault(&fault_mask);
+
+  if (ok != 0U)
+  {
+    s_power_status.vbat_mV = vbat_mV;
+    s_power_status.soc_percent = soc_percent;
+    s_power_status.st1 = st1;
+    s_power_status.st2 = st2;
+    s_power_status.pgood = pgood;
+    s_power_status.fault_mask = fault_mask;
+    s_power_status.valid = 1U;
+  }
+  else
+  {
+    s_power_status.valid = 0U;
+  }
 }
 
 static bool sensor_is_ui_mode(void)
@@ -731,6 +815,14 @@ static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t n
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
   }
+  if ((req & APP_SENSOR_REQ_POWER_STATS_ON) != 0U)
+  {
+    sensor_power_set_enabled(1U);
+  }
+  if ((req & APP_SENSOR_REQ_POWER_STATS_OFF) != 0U)
+  {
+    sensor_power_set_enabled(0U);
+  }
 }
 
 static void sensor_joy_cal_step(TMAGJoy *joy, uint32_t now_ms)
@@ -1045,6 +1137,8 @@ void sensor_task_run(void)
   sensor_joy_set_menu_nav(joy, 0U);
   sensor_joy_set_monitor(0U);
   sensor_joy_refresh_status(joy, false);
+  sensor_power_status_reset();
+  sensor_power_set_enabled(0U);
 
   for (;;)
   {
@@ -1056,9 +1150,19 @@ void sensor_task_run(void)
     {
       timeout = kJoyCalTickMs;
     }
-    else if ((s_menu_nav_enabled != 0U) || (s_monitor_enabled != 0U))
+    if ((s_menu_nav_enabled != 0U) || (s_monitor_enabled != 0U))
     {
-      timeout = kJoyMonitorTickMs;
+      if ((timeout == osWaitForever) || (timeout > kJoyMonitorTickMs))
+      {
+        timeout = kJoyMonitorTickMs;
+      }
+    }
+    if (s_power_stats_enabled != 0U)
+    {
+      if ((timeout == osWaitForever) || (timeout > kPowerStatsTickMs))
+      {
+        timeout = kPowerStatsTickMs;
+      }
     }
 
     osStatus_t status = osMessageQueueGet(qSensorReqHandle, &req, NULL, timeout);
@@ -1083,6 +1187,8 @@ void sensor_task_run(void)
     {
       sensor_joy_menu_poll(joy);
     }
+
+    sensor_power_update(now_ms);
   }
 }
 
@@ -1106,4 +1212,14 @@ void sensor_joy_get_menu_params(sensor_joy_menu_params_t *out)
   out->press_norm = s_menu_press_norm;
   out->release_norm = s_menu_release_norm;
   out->axis_ratio = s_menu_axis_ratio;
+}
+
+void sensor_power_get_status(sensor_power_status_t *out)
+{
+  if (out == NULL)
+  {
+    return;
+  }
+
+  *out = s_power_status;
 }

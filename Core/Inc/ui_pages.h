@@ -27,6 +27,7 @@ typedef enum
 
 #define UI_PAGE_FLAG_JOY_MENU    (1U << 0U)
 #define UI_PAGE_FLAG_JOY_MONITOR (1U << 1U)
+#define UI_PAGE_FLAG_POWER_STATS (1U << 2U)
 
 typedef uint32_t (*ui_page_event_fn)(ui_evt_t evt);
 
@@ -48,6 +49,7 @@ extern const ui_page_t PAGE_JOY_TARGET;
 extern const ui_page_t PAGE_JOY_CURSOR;
 extern const ui_page_t PAGE_SOUND;
 extern const ui_page_t PAGE_MENU_INPUT;
+extern const ui_page_t PAGE_BATT_STATS;
 
 #ifdef __cplusplus
 }

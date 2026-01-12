@@ -54,6 +54,15 @@ static void ui_update_sensor_mode(const ui_page_t *page)
     req |= APP_SENSOR_REQ_JOY_MONITOR_OFF;
   }
 
+  if ((flags & UI_PAGE_FLAG_POWER_STATS) != 0U)
+  {
+    req |= APP_SENSOR_REQ_POWER_STATS_ON;
+  }
+  else
+  {
+    req |= APP_SENSOR_REQ_POWER_STATS_OFF;
+  }
+
   if (req != 0U)
   {
     ui_actions_send_sensor_req(req);
@@ -174,6 +183,7 @@ void ui_task_run(void)
       }
       else
       {
+        resume_demo = true;
         ui_enter_game(&resume_demo);
       }
       continue;
