@@ -765,15 +765,22 @@ Implementation notes (Phase 4 sensors):
 ## Phase 5 — Storage + littlefs (awake-mode, no streaming yet)
 Goal: filesystem stability first.
 
-- [ ] tskStorage becomes sole OCTOSPI + littlefs owner
-- [ ] Implement init/mount
-- [ ] Implement basic read/write requests
-- [ ] Implement flash deep power-down callable (but don’t tie to STOP2 yet)
+- [x] tskStorage becomes sole OCTOSPI + littlefs owner
+- [x] Implement init/mount
+- [x] Implement basic read/write requests
+- [x] Implement flash deep power-down callable (but don’t tie to STOP2 yet)
 
 Acceptance:
 - Filesystem operations are reliable
 - No concurrent FS calls elsewhere
 - No lockups during read/write
+
+Implementation notes (Phase 5 storage):
+- tskStorage owns OCTOSPI + littlefs and serves requests via qStorageReq; no other task calls littlefs.
+- littlefs is configured with static buffers (LFS_NO_MALLOC) and uses lfs_file_opencfg for file I/O.
+- Storage test page exercises write/read/list/delete/exists on demand.
+- Settings persist to `/settings.bin` with a small header + CRC; load happens on mount, invalid/missing resets to defaults.
+- Save is explicit only (menu "Save & Exit") to avoid flash wear from auto-save.
 
 ---
 
