@@ -495,6 +495,10 @@ static void sensor_joy_set_menu_nav(TMAGJoy *joy, uint8_t enable)
 {
   s_menu_nav_enabled = enable ? 1U : 0U;
   sensor_joy_menu_reset_state();
+  if (enable != 0U)
+  {
+    s_menu_wait_neutral = 1U;
+  }
   if (joy != NULL)
   {
     TMAGJoy_MenuEnable(enable);
@@ -597,7 +601,12 @@ static app_button_id_t sensor_joy_menu_dir(float nx, float ny)
     return (ny >= 0.0f) ? APP_BUTTON_JOY_UP : APP_BUTTON_JOY_DOWN;
   }
 
-  return APP_BUTTON_COUNT;
+  if (nx >= 0.0f)
+  {
+    return (ny >= 0.0f) ? APP_BUTTON_JOY_UPRIGHT : APP_BUTTON_JOY_DOWNRIGHT;
+  }
+
+  return (ny >= 0.0f) ? APP_BUTTON_JOY_UPLEFT : APP_BUTTON_JOY_DOWNLEFT;
 }
 
 static void sensor_joy_menu_poll(TMAGJoy *joy)
@@ -641,13 +650,11 @@ static void sensor_joy_menu_poll(TMAGJoy *joy)
   }
 
   app_button_id_t button_id = sensor_joy_menu_dir(nx, ny);
-  if (button_id == APP_BUTTON_COUNT)
+  if (button_id != APP_BUTTON_COUNT)
   {
-    return;
+    s_menu_wait_neutral = 1U;
+    sensor_joy_emit_menu_event(button_id);
   }
-
-  s_menu_wait_neutral = 1U;
-  sensor_joy_emit_menu_event(button_id);
 }
 
 static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t now_ms)

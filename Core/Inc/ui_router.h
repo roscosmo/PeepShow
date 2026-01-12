@@ -1,6 +1,9 @@
 #ifndef UI_ROUTER_H
 #define UI_ROUTER_H
 
+#include "ui_menu.h"
+#include "ui_pages.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -10,37 +13,26 @@ extern "C" {
 
 typedef enum
 {
-  UI_PAGE_MENU = 0,
-  UI_PAGE_HOME = 1,
-  UI_PAGE_JOY_CAL = 2,
-  UI_PAGE_JOY_TARGET = 3,
-  UI_PAGE_JOY_CURSOR = 4,
-  UI_PAGE_SOUND = 5,
-  UI_PAGE_MENU_INPUT = 6
-} ui_page_t;
+  UI_ROUTER_ACTION_NONE = 0,
+  UI_ROUTER_ACTION_START_RENDER_DEMO = 1,
+  UI_ROUTER_ACTION_EXIT_MENU = 2
+} ui_router_action_t;
 
-typedef enum
+typedef struct
 {
-  UI_ROUTER_CMD_NONE = 0,
-  UI_ROUTER_CMD_START_RENDER_DEMO = 1,
-  UI_ROUTER_CMD_OPEN_JOY_CAL = 2,
-  UI_ROUTER_CMD_OPEN_JOY_TARGET = 3,
-  UI_ROUTER_CMD_OPEN_JOY_CURSOR = 4,
-  UI_ROUTER_CMD_TOGGLE_KEYCLICK = 5,
-  UI_ROUTER_CMD_OPEN_SOUND = 6,
-  UI_ROUTER_CMD_OPEN_MENU_INPUT = 7
-} ui_router_cmd_t;
+  const ui_menu_t *menu;
+  uint8_t index;
+  uint8_t depth;
+} ui_router_menu_state_t;
 
 void ui_router_init(void);
-ui_page_t ui_router_get_page(void);
-void ui_router_set_page(ui_page_t page);
-bool ui_router_handle_button(uint32_t button_id, ui_router_cmd_t *out_cmd);
+const ui_page_t *ui_router_get_page(void);
+void ui_router_set_page(const ui_page_t *page);
+bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action);
 void ui_router_render(void);
-void ui_router_set_joy_cursor(uint16_t x, uint16_t y);
+void ui_router_get_menu_state(ui_router_menu_state_t *out_state);
 bool ui_router_get_keyclick(void);
 void ui_router_set_keyclick(bool enable);
-void ui_router_set_menu_input_index(uint8_t index);
-uint8_t ui_router_get_menu_input_index(void);
 
 #ifdef __cplusplus
 }

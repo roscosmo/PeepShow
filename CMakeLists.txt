@@ -59,7 +59,16 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_renderer.c
     Core/Src/render_demo.c
     Core/Src/ui_router.c
+    Core/Src/ui_menu.c
+    Core/Src/ui_actions.c
     Core/Src/ui_task.c
+    Core/Src/page_menu.c
+    Core/Src/page_home.c
+    Core/Src/page_joy_cal.c
+    Core/Src/page_joy_target.c
+    Core/Src/page_joy_cursor.c
+    Core/Src/page_sound.c
+    Core/Src/page_menu_input.c
     Core/Src/game_task.c
     Core/Src/sensor_task.c
     Core/Src/audio_task.c
