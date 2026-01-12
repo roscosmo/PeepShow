@@ -4,6 +4,7 @@
 #include "cmsis_os2.h"
 #include "tmag5273.h"
 #include "ADP5360.h"
+#include "settings.h"
 
 #include <math.h>
 #include <string.h>
@@ -67,6 +68,7 @@ static uint8_t s_monitor_enabled = 0U;
 static sensor_power_status_t s_power_status;
 static uint8_t s_power_stats_enabled = 0U;
 static uint32_t s_power_last_ms = 0U;
+static uint32_t s_settings_seq = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
 static const uint32_t kJoyCalNeutralMs = 1500U;
@@ -294,6 +296,68 @@ static void sensor_joy_refresh_status(TMAGJoy *joy, bool sample_raw)
   {
     TMAGJoy_ReadCalibratedRaw(joy, &s_status.nx, &s_status.ny, &s_status.r_abs_mT);
   }
+}
+
+static void sensor_apply_settings(TMAGJoy *joy, bool apply_cal)
+{
+  settings_data_t data;
+  settings_get(&data);
+
+  s_menu_press_norm = data.menu_press_norm;
+  s_menu_release_norm = data.menu_release_norm;
+  s_menu_axis_ratio = data.menu_axis_ratio;
+  sensor_joy_menu_clamp();
+  sensor_joy_menu_reset_state();
+
+  if ((joy != NULL) && apply_cal && (data.joy.valid != 0U))
+  {
+    TMAGJoy_SetCenter(joy, data.joy.cx, data.joy.cy);
+    TMAGJoy_SetSpan(joy, data.joy.sx, data.joy.sy);
+    TMAGJoy_SetRotationDeg(joy, data.joy.rot_deg);
+    TMAGJoy_SetInvert(joy, data.joy.invert_x, data.joy.invert_y);
+    TMAGJoy_SetAbsDeadzone(joy, data.joy.abs_deadzone_en, data.joy.abs_deadzone_mT);
+    (void)TMAG5273_set_x_threshold_mT(data.joy.thr_x_mT);
+    (void)TMAG5273_set_y_threshold_mT(data.joy.thr_y_mT);
+    joy->cfg.thr_x_mT = data.joy.thr_x_mT;
+    joy->cfg.thr_y_mT = data.joy.thr_y_mT;
+    sensor_joy_refresh_status(joy, false);
+  }
+}
+
+static void sensor_store_joy_settings(TMAGJoy *joy, uint8_t valid)
+{
+  if (joy == NULL)
+  {
+    return;
+  }
+
+  settings_joy_cal_t cal;
+  (void)memset(&cal, 0, sizeof(cal));
+
+  TMAGJoy_Cal joy_cal;
+  TMAGJoy_GetCal(joy, &joy_cal);
+  cal.cx = joy_cal.cx;
+  cal.cy = joy_cal.cy;
+  cal.sx = joy_cal.sx;
+  cal.sy = joy_cal.sy;
+  cal.rot_deg = joy_cal.rot_deg;
+  cal.invert_x = joy_cal.invert_x;
+  cal.invert_y = joy_cal.invert_y;
+
+  float thr_x = 0.0f;
+  float thr_y = 0.0f;
+  TMAGJoy_GetThresholds(joy, &thr_x, &thr_y);
+  cal.thr_x_mT = thr_x;
+  cal.thr_y_mT = thr_y;
+
+  uint8_t dz_en = 0U;
+  float dz_mT = 0.0f;
+  TMAGJoy_GetAbsDeadzone(joy, &dz_en, &dz_mT);
+  cal.abs_deadzone_en = dz_en;
+  cal.abs_deadzone_mT = dz_mT;
+
+  cal.valid = (valid != 0U) ? 1U : 0U;
+  settings_set_joy_cal(&cal);
 }
 
 static float sensor_joy_cal_dir_min_mT(void)
@@ -639,6 +703,10 @@ static void sensor_joy_adjust_deadzone(TMAGJoy *joy, int32_t delta_px)
 
   TMAGJoy_SetAbsDeadzone(joy, 1U, dz_mT);
   sensor_joy_refresh_status(joy, true);
+
+  settings_data_t data;
+  settings_get(&data);
+  sensor_store_joy_settings(joy, data.joy.valid);
 }
 
 static void sensor_joy_emit_menu_event(app_button_id_t button_id)
@@ -743,6 +811,8 @@ static void sensor_joy_menu_poll(TMAGJoy *joy)
 
 static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t now_ms)
 {
+  uint8_t menu_params_changed = 0U;
+
   if ((req & APP_SENSOR_REQ_JOY_CAL_NEUTRAL) != 0U)
   {
     sensor_joy_start_calibration(joy, now_ms);
@@ -784,36 +854,46 @@ static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t n
     s_menu_press_norm += kJoyMenuPressStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
   }
   if ((req & APP_SENSOR_REQ_JOY_MENU_PRESS_DEC) != 0U)
   {
     s_menu_press_norm -= kJoyMenuPressStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
   }
   if ((req & APP_SENSOR_REQ_JOY_MENU_RELEASE_INC) != 0U)
   {
     s_menu_release_norm += kJoyMenuReleaseStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
   }
   if ((req & APP_SENSOR_REQ_JOY_MENU_RELEASE_DEC) != 0U)
   {
     s_menu_release_norm -= kJoyMenuReleaseStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
   }
   if ((req & APP_SENSOR_REQ_JOY_MENU_RATIO_INC) != 0U)
   {
     s_menu_axis_ratio += kJoyMenuAxisStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
   }
   if ((req & APP_SENSOR_REQ_JOY_MENU_RATIO_DEC) != 0U)
   {
     s_menu_axis_ratio -= kJoyMenuAxisStep;
     sensor_joy_menu_clamp();
     sensor_joy_menu_reset_state();
+    menu_params_changed = 1U;
+  }
+  if (menu_params_changed != 0U)
+  {
+    settings_set_menu_params(s_menu_press_norm, s_menu_release_norm, s_menu_axis_ratio);
   }
   if ((req & APP_SENSOR_REQ_POWER_STATS_ON) != 0U)
   {
@@ -1124,6 +1204,7 @@ static void sensor_joy_cal_step(TMAGJoy *joy, uint32_t now_ms)
     s_status.progress = 1.0f;
     s_cal.have_prev = 0U;
     sensor_joy_refresh_status(joy, false);
+    sensor_store_joy_settings(joy, 1U);
   }
 }
 
@@ -1139,11 +1220,21 @@ void sensor_task_run(void)
   sensor_joy_refresh_status(joy, false);
   sensor_power_status_reset();
   sensor_power_set_enabled(0U);
+  sensor_apply_settings(joy, true);
+  s_settings_seq = settings_get_seq();
 
   for (;;)
   {
     app_sensor_req_t req = 0U;
     uint32_t timeout = osWaitForever;
+    uint32_t seq = settings_get_seq();
+    if (seq != s_settings_seq)
+    {
+      s_settings_seq = seq;
+      bool apply_cal = ((s_status.stage == SENSOR_JOY_STAGE_IDLE) ||
+                        (s_status.stage == SENSOR_JOY_STAGE_DONE));
+      sensor_apply_settings(joy, apply_cal);
+    }
 
     if ((s_status.stage != SENSOR_JOY_STAGE_IDLE) &&
         (s_status.stage != SENSOR_JOY_STAGE_DONE))

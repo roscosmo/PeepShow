@@ -4,6 +4,8 @@
 #include "audio_task.h"
 #include "cmsis_os2.h"
 #include "render_demo.h"
+#include "settings.h"
+#include "storage_task.h"
 #include "ui_actions.h"
 #include "ui_router.h"
 
@@ -29,6 +31,25 @@ static void ui_send_display_invalidate(void)
 {
   app_display_cmd_t cmd = APP_DISPLAY_CMD_INVALIDATE;
   (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
+}
+
+static void ui_apply_settings(uint32_t *seq_cache)
+{
+  uint32_t seq = settings_get_seq();
+  if ((seq_cache != NULL) && (*seq_cache == seq))
+  {
+    return;
+  }
+
+  settings_data_t data;
+  settings_get(&data);
+  audio_set_volume(data.volume);
+  ui_router_set_keyclick(data.keyclick_enabled != 0U);
+
+  if (seq_cache != NULL)
+  {
+    *seq_cache = seq;
+  }
 }
 
 static void ui_update_sensor_mode(const ui_page_t *page)
@@ -136,8 +157,10 @@ void ui_task_run(void)
 {
   app_ui_event_t ui_event = 0U;
   bool resume_demo = false;
+  uint32_t settings_seq = 0U;
 
   ui_router_init();
+  ui_apply_settings(&settings_seq);
   ui_router_render();
   ui_send_display_invalidate();
   ui_update_sensor_mode(ui_router_get_page());
@@ -156,6 +179,8 @@ void ui_task_run(void)
     {
       continue;
     }
+
+    ui_apply_settings(&settings_seq);
 
     if (status == osOK)
     {
@@ -245,6 +270,13 @@ void ui_task_run(void)
     }
     else if (action == UI_ROUTER_ACTION_EXIT_MENU)
     {
+      ui_enter_game(&resume_demo);
+      render = false;
+    }
+    else if (action == UI_ROUTER_ACTION_SAVE_EXIT)
+    {
+      (void)storage_request_save_settings();
+      resume_demo = true;
       ui_enter_game(&resume_demo);
       render = false;
     }

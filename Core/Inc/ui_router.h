@@ -15,7 +15,8 @@ typedef enum
 {
   UI_ROUTER_ACTION_NONE = 0,
   UI_ROUTER_ACTION_START_RENDER_DEMO = 1,
-  UI_ROUTER_ACTION_EXIT_MENU = 2
+  UI_ROUTER_ACTION_EXIT_MENU = 2,
+  UI_ROUTER_ACTION_SAVE_EXIT = 3
 } ui_router_action_t;
 
 typedef struct

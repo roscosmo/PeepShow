@@ -50,6 +50,7 @@ extern const ui_page_t PAGE_JOY_CURSOR;
 extern const ui_page_t PAGE_SOUND;
 extern const ui_page_t PAGE_MENU_INPUT;
 extern const ui_page_t PAGE_BATT_STATS;
+extern const ui_page_t PAGE_STORAGE;
 
 #ifdef __cplusplus
 }

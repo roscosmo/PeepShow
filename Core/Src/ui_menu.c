@@ -27,12 +27,25 @@ static const ui_menu_t k_menu_power =
   .count = (uint8_t)(sizeof(k_menu_power_items) / sizeof(k_menu_power_items[0]))
 };
 
+static const ui_menu_item_t k_menu_storage_items[] =
+{
+  { "Storage Test", UI_MENU_ITEM_PAGE, { .page = &PAGE_STORAGE } }
+};
+
+static const ui_menu_t k_menu_storage =
+{
+  .title = "STORAGE",
+  .items = k_menu_storage_items,
+  .count = (uint8_t)(sizeof(k_menu_storage_items) / sizeof(k_menu_storage_items[0]))
+};
+
 static const ui_menu_item_t k_menu_root_items[] =
 {
   { "Power", UI_MENU_ITEM_SUBMENU, { .submenu = &k_menu_power } },
+  { "Storage", UI_MENU_ITEM_SUBMENU, { .submenu = &k_menu_storage } },
   { "Joystick", UI_MENU_ITEM_SUBMENU, { .submenu = &k_menu_joystick } },
-  { "Render Demo", UI_MENU_ITEM_COMMAND, { .cmd = UI_MENU_CMD_START_RENDER_DEMO } },
-  { "Sound Settings", UI_MENU_ITEM_PAGE, { .page = &PAGE_SOUND } }
+  { "Sound Settings", UI_MENU_ITEM_PAGE, { .page = &PAGE_SOUND } },
+  { "Save & Exit", UI_MENU_ITEM_COMMAND, { .cmd = UI_MENU_CMD_SAVE_EXIT } }
 };
 
 static const ui_menu_t k_menu_root =

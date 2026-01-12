@@ -70,9 +70,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/page_sound.c
     Core/Src/page_menu_input.c
     Core/Src/page_batt_stats.c
+    Core/Src/page_storage.c
+    Core/Src/settings.c
     Core/Src/game_task.c
     Core/Src/sensor_task.c
     Core/Src/audio_task.c
+    Core/Src/storage_task.c
+    Core/Src/lfs.c
+    Core/Src/lfs_util.c
 )
 
 # Speed up hot render paths.
@@ -89,6 +94,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
+    LFS_NO_MALLOC
 )
 
 # Add linked libraries

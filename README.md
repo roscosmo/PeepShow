@@ -684,8 +684,7 @@ Goal: eliminate partial/incomplete flush issues before power complexity.
 Acceptance:
 - No SPI abort hacks required
 - System remains responsive during flushes
-- Only tskDisplay touches SPI3
-
+- Only tskDisplay touches SP
 Implementation notes (Phase 1 display):
 - display_renderer owns the packed 1bpp buffer in SRAM4 and tracks dirty rows via a per-row bitmask.
 - display_renderer also owns an L8 working buffer (1 byte per pixel) in SRAM1; it packs dirty rows into the 1bpp buffer on flush.

@@ -3,6 +3,7 @@
 #include "audio_task.h"
 #include "display_renderer.h"
 #include "font8x8_basic.h"
+#include "settings.h"
 #include "ui_router.h"
 
 #include <stdio.h>
@@ -23,6 +24,7 @@ static uint32_t page_sound_event(ui_evt_t evt)
     {
       volume--;
       audio_set_volume(volume);
+      settings_set_volume(volume);
       result |= UI_PAGE_EVENT_RENDER;
     }
   }
@@ -33,12 +35,15 @@ static uint32_t page_sound_event(ui_evt_t evt)
     {
       volume++;
       audio_set_volume(volume);
+      settings_set_volume(volume);
       result |= UI_PAGE_EVENT_RENDER;
     }
   }
   else if (evt == UI_EVT_SELECT)
   {
-    ui_router_set_keyclick(!ui_router_get_keyclick());
+    bool enabled = !ui_router_get_keyclick();
+    ui_router_set_keyclick(enabled);
+    settings_set_keyclick(enabled ? 1U : 0U);
     result |= UI_PAGE_EVENT_RENDER;
   }
 

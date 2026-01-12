@@ -19,7 +19,8 @@ typedef enum
 typedef enum
 {
   UI_MENU_CMD_NONE = 0,
-  UI_MENU_CMD_START_RENDER_DEMO = 1
+  UI_MENU_CMD_START_RENDER_DEMO = 1,
+  UI_MENU_CMD_SAVE_EXIT = 2
 } ui_menu_cmd_t;
 
 struct ui_menu;

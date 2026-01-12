@@ -165,6 +165,10 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
           {
             *out_action = UI_ROUTER_ACTION_START_RENDER_DEMO;
           }
+          else if (item->target.cmd == UI_MENU_CMD_SAVE_EXIT)
+          {
+            *out_action = UI_ROUTER_ACTION_SAVE_EXIT;
+          }
         }
       }
     }

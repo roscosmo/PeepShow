@@ -28,6 +28,8 @@
 #include "game_task.h"
 #include "sensor_task.h"
 #include "audio_task.h"
+#include "settings.h"
+#include "storage_task.h"
 
 /* USER CODE END Includes */
 
@@ -269,6 +271,7 @@ __weak void PostSleepProcessing(uint32_t ulExpectedIdleTime)
   */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  settings_init();
 
   /* USER CODE END Init */
   /* creation of mtxLog */
@@ -481,13 +484,8 @@ void StartTaskSensor(void *argument)
 void StartTaskFileSystem(void *argument)
 {
   /* USER CODE BEGIN tskStorage */
-  app_storage_req_t req = 0U;
   (void)argument;
-  /* Infinite loop */
-  for(;;)
-  {
-    (void)osMessageQueueGet(qStorageReqHandle, &req, NULL, osWaitForever);
-  }
+  storage_task_run();
   /* USER CODE END tskStorage */
 }
 
