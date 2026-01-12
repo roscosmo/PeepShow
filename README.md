@@ -699,8 +699,12 @@ Implementation notes (Phase 1 display):
 - DMA completion/error signals tskDisplay via thread flags (no polling loops).
 
 Implementation notes (Phase 2 UI router):
-- BOOT toggles the system menu; A/B/L/R are context actions defined per UI page/game.
-- Menu selection (e.g., Render Demo) requests game mode via sys event, then starts the demo once mode is active.
+- Menu hierarchy (including submenus) is defined in `Core/Src/ui_menu.c` using static tables.
+- Each page lives in `Core/Src/page_*.c` and exposes a `ui_page_t` with enter/event/render/exit, tick, and flags.
+- `ui_router` tracks a menu stack and dispatches `ui_evt_t` to the active page; the menu page renders from `ui_router_get_menu_state`.
+- `ui_task` maps physical buttons to UI events, handles BOOT game/menu toggle, and applies page flags to set sensor menu/monitor modes.
+- Page-specific button handling happens inside each page's `event` handler; only global actions live in `ui_task`.
+- Menu actions (e.g., Render Demo) request game mode via sys event, then start the demo once mode is active.
 
 ---
 
@@ -752,8 +756,10 @@ Acceptance:
 
 Implementation notes (Phase 4 sensors):
 - tskSensor owns TMAG5273 I2C reads and exposes a shared status snapshot for UI polling.
-- Joystick calibration is multi-stage (neutral → up/right/down/left → sweep) to derive center, rotation, invert, span, thresholds, and deadzone.
-- Menu navigation uses TMAGJoy_MenuPoll to emit L/R events in UI mode.
+- Joystick calibration is multi-stage (neutral -> up/right/down/left -> sweep) to derive center, rotation, invert, span, thresholds, and deadzone.
+- Menu navigation uses a tskSensor poll path to emit APP_BUTTON_JOY_* events into qInput when in UI mode.
+- The menu poll uses press/release thresholds, axis dominance ratio, abs deadzone, and diagonal detection.
+- A neutral-arm gate is applied when menu nav is enabled to prevent a startup ghost move; menu input tuning resets the gate.
 - Joy Target page adjusts abs deadzone with L/R; Joy Cursor page visualizes calibrated cursor motion only.
 
 ---
