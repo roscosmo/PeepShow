@@ -77,8 +77,8 @@ static const float kAudioClickHz = 2000.0f;
 static const uint32_t kAudioClickMs = 25U;
 static const uint8_t kAudioVolumeMax = 10U;
 static const uint8_t kAudioVolumeDefault = 7U;
-static const uint32_t kAudioFlashPrebufferMin = 1024U;
-static const uint32_t kAudioFlashPrebufferMax = 2048U;
+static const uint32_t kAudioFlashPrebufferMin = 2048U;
+static const uint32_t kAudioFlashPrebufferMax = 4096U;
 
 static const int16_t kImaStepTable[89] =
 {
