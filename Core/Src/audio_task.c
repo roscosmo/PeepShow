@@ -5,6 +5,7 @@
 #include "main.h"
 #include "sounds.h"
 #include "storage_task.h"
+#include "power_task.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -1234,6 +1235,28 @@ void audio_task_run(void)
 
   for (;;)
   {
+    if (power_task_is_quiescing() != 0U)
+    {
+      if (audio_is_active() == 0U)
+      {
+        if (storage_stream_is_active() != 0U)
+        {
+          (void)storage_request_stream_close();
+        }
+        power_task_quiesce_ack(POWER_QUIESCE_ACK_AUDIO);
+        while (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, 0U) == osOK)
+        {
+          /* discard queued audio commands while quiescing */
+        }
+        osDelay(5U);
+        continue;
+      }
+      power_task_quiesce_clear(POWER_QUIESCE_ACK_AUDIO);
+    }
+    else
+    {
+      power_task_quiesce_clear(POWER_QUIESCE_ACK_AUDIO);
+    }
     if ((s_audio_state == AUDIO_STATE_IDLE) &&
         (s_audio_mode == AUDIO_MODE_NONE) &&
         (storage_stream_is_active() != 0U))
@@ -1397,4 +1420,9 @@ void audio_set_volume(uint8_t level)
 uint8_t audio_get_volume(void)
 {
   return s_audio_volume;
+}
+
+uint8_t audio_is_active(void)
+{
+  return ((s_audio_state == AUDIO_STATE_PLAYING) || (s_flash_wait != 0U)) ? 1U : 0U;
 }

@@ -30,6 +30,7 @@
 #include "audio_task.h"
 #include "settings.h"
 #include "storage_task.h"
+#include "power_task.h"
 
 /* USER CODE END Includes */
 
@@ -53,9 +54,6 @@ typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN Variables */
 static const uint32_t kButtonDebounceMs = 20U;
 static uint32_t s_btn_last_tick[APP_BUTTON_COUNT];
-static uint8_t s_audio_ref = 0U;
-static uint8_t s_debug_ref = 0U;
-static uint8_t s_stream_ref = 0U;
 
 volatile uint32_t g_input_task_started = 0U;
 volatile uint32_t g_input_last_flags = 0U;
@@ -436,101 +434,8 @@ void StartTaskInput(void *argument)
 void StartTaskPower(void *argument)
 {
   /* USER CODE BEGIN tskPower */
-  app_sys_event_t sys_event = 0U;
   (void)argument;
-
-#if DEBUGGING
-  if (s_debug_ref == 0U)
-  {
-    s_debug_ref = 1U;
-  }
-#endif
-  if (egDebugHandle != NULL)
-  {
-    if (s_debug_ref > 0U)
-    {
-      (void)osEventFlagsSet(egDebugHandle, APP_DEBUG_MODE);
-    }
-    else
-    {
-      (void)osEventFlagsClear(egDebugHandle, APP_DEBUG_MODE);
-    }
-  }
-  /* Infinite loop */
-  for(;;)
-  {
-    if (osMessageQueueGet(qSysEventsHandle, &sys_event, NULL, osWaitForever) == osOK)
-    {
-      g_sys_event_count++;
-      switch (sys_event)
-      {
-        case APP_SYS_EVENT_ENTER_GAME:
-          if (egModeHandle != NULL)
-          {
-            (void)osEventFlagsClear(egModeHandle, APP_MODE_UI);
-            (void)osEventFlagsSet(egModeHandle, APP_MODE_GAME);
-          }
-          break;
-        case APP_SYS_EVENT_EXIT_GAME:
-          if (egModeHandle != NULL)
-          {
-            (void)osEventFlagsClear(egModeHandle, APP_MODE_GAME);
-            (void)osEventFlagsSet(egModeHandle, APP_MODE_UI);
-          }
-          break;
-        case APP_SYS_EVENT_AUDIO_ON:
-          if (s_audio_ref < 0xFFU)
-          {
-            s_audio_ref++;
-          }
-          break;
-        case APP_SYS_EVENT_AUDIO_OFF:
-          if (s_audio_ref > 0U)
-          {
-            s_audio_ref--;
-          }
-          break;
-        case APP_SYS_EVENT_DEBUG_ON:
-          if (s_debug_ref < 0xFFU)
-          {
-            s_debug_ref++;
-          }
-          break;
-        case APP_SYS_EVENT_DEBUG_OFF:
-          if (s_debug_ref > 0U)
-          {
-            s_debug_ref--;
-          }
-          break;
-        case APP_SYS_EVENT_STREAM_ON:
-          if (s_stream_ref < 0xFFU)
-          {
-            s_stream_ref++;
-          }
-          break;
-        case APP_SYS_EVENT_STREAM_OFF:
-          if (s_stream_ref > 0U)
-          {
-            s_stream_ref--;
-          }
-          break;
-        default:
-          break;
-      }
-
-      if (egDebugHandle != NULL)
-      {
-        if (s_debug_ref > 0U)
-        {
-          (void)osEventFlagsSet(egDebugHandle, APP_DEBUG_MODE);
-        }
-        else
-        {
-          (void)osEventFlagsClear(egDebugHandle, APP_DEBUG_MODE);
-        }
-      }
-    }
-  }
+  power_task_run();
   /* USER CODE END tskPower */
 }
 
@@ -598,6 +503,8 @@ void StartTaskAudio(void *argument)
 void tmrInactivityCb(void *argument)
 {
   /* USER CODE BEGIN tmrInactivityCb */
+  (void)argument;
+  power_task_request_sleep();
 
   /* USER CODE END tmrInactivityCb */
 }
@@ -633,6 +540,7 @@ static void app_input_process_event(const app_input_event_t *evt)
     return;
   }
   s_btn_last_tick[evt->button_id] = now;
+  power_task_activity_ping();
 
   g_input_last_flags = ((uint32_t)evt->button_id) | ((uint32_t)evt->pressed << 8);
   debug_uart_printf("input id=%lu state=%lu\r\n",

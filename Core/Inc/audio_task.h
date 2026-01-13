@@ -10,6 +10,7 @@ extern "C" {
 void audio_task_run(void);
 void audio_set_volume(uint8_t level);
 uint8_t audio_get_volume(void);
+uint8_t audio_is_active(void);
 
 #ifdef __cplusplus
 }

@@ -120,6 +120,7 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_SYS_EVENT_DEBUG_OFF   (1UL << 6U)
 #define APP_SYS_EVENT_STREAM_ON   (1UL << 7U)
 #define APP_SYS_EVENT_STREAM_OFF  (1UL << 8U)
+#define APP_SYS_EVENT_INACTIVITY  (1UL << 9U)
 #define APP_DISPLAY_CMD_TOGGLE    (1UL)
 #define APP_DISPLAY_CMD_RENDER_DEMO (2UL)
 #define APP_DISPLAY_CMD_INVALIDATE (3UL)

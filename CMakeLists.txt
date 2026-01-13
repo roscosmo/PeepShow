@@ -76,6 +76,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/sensor_task.c
     Core/Src/audio_task.c
     Core/Src/storage_task.c
+    Core/Src/power_task.c
     Core/Src/lfs.c
     Core/Src/lfs_util.c
 )

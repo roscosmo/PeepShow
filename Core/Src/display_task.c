@@ -5,6 +5,7 @@
 #include "render_demo.h"
 #include "app_freertos.h"
 #include "main.h"
+#include "power_task.h"
 
 extern SPI_HandleTypeDef hspi3;
 
@@ -122,8 +123,23 @@ void display_task_run(void)
 
   for (;;)
   {
+    if (power_task_is_quiescing() != 0U)
+    {
+      if (!s_display_busy)
+      {
+        power_task_quiesce_ack(POWER_QUIESCE_ACK_DISPLAY);
+      }
+      else
+      {
+        power_task_quiesce_clear(POWER_QUIESCE_ACK_DISPLAY);
+      }
+      osDelay(5U);
+      continue;
+    }
+    power_task_quiesce_clear(POWER_QUIESCE_ACK_DISPLAY);
+
     app_display_cmd_t cmd = 0U;
-    if (osMessageQueueGet(qDisplayCmdHandle, &cmd, NULL, osWaitForever) != osOK)
+    if (osMessageQueueGet(qDisplayCmdHandle, &cmd, NULL, 20U) != osOK)
     {
       continue;
     }

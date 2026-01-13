@@ -5,6 +5,7 @@
 #include "lfs.h"
 #include "settings.h"
 #include "main.h"
+#include "power_task.h"
 
 #include <string.h>
 
@@ -1459,6 +1460,21 @@ void storage_task_run(void)
 
   for (;;)
   {
+    if (power_task_is_quiescing() != 0U)
+    {
+      if ((s_stream.active == 0U) && (s_req_pending == 0U))
+      {
+        power_task_quiesce_ack(POWER_QUIESCE_ACK_STORAGE);
+        osDelay(5U);
+        continue;
+      }
+      power_task_quiesce_clear(POWER_QUIESCE_ACK_STORAGE);
+    }
+    else
+    {
+      power_task_quiesce_clear(POWER_QUIESCE_ACK_STORAGE);
+    }
+
     app_storage_req_t req = 0U;
     uint32_t timeout = (s_stream.active != 0U) ? 5U : osWaitForever;
     if (osMessageQueueGet(qStorageReqHandle, &req, NULL, timeout) != osOK)
@@ -1522,6 +1538,11 @@ uint32_t storage_stream_available(void)
 uint32_t storage_stream_read(uint8_t *dst, uint32_t len)
 {
   return storage_stream_read_internal(dst, len);
+}
+
+uint8_t storage_is_busy(void)
+{
+  return ((s_stream.active != 0U) || (s_req_pending != 0U)) ? 1U : 0U;
 }
 
 bool storage_request_remount(void)

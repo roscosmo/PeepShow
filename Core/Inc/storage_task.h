@@ -92,6 +92,7 @@ uint8_t storage_stream_is_active(void);
 uint8_t storage_stream_has_error(void);
 uint32_t storage_stream_available(void);
 uint32_t storage_stream_read(uint8_t *dst, uint32_t len);
+uint8_t storage_is_busy(void);
 
 #ifdef __cplusplus
 }

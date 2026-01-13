@@ -5,6 +5,7 @@
 #include "tmag5273.h"
 #include "ADP5360.h"
 #include "settings.h"
+#include "power_task.h"
 
 #include <math.h>
 #include <string.h>
@@ -1225,6 +1226,14 @@ void sensor_task_run(void)
 
   for (;;)
   {
+    if (power_task_is_quiescing() != 0U)
+    {
+      power_task_quiesce_ack(POWER_QUIESCE_ACK_SENSOR);
+      osDelay(10U);
+      continue;
+    }
+    power_task_quiesce_clear(POWER_QUIESCE_ACK_SENSOR);
+
     app_sensor_req_t req = 0U;
     uint32_t timeout = osWaitForever;
     uint32_t seq = settings_get_seq();
