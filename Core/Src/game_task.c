@@ -3,7 +3,7 @@
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "render_demo.h"
-#include "storage_task.h"
+#include "power_task.h"
 
 void game_task_run(void)
 {
@@ -57,17 +57,11 @@ void game_task_run(void)
 
     if (button_id == (uint32_t)APP_GAME_DEMO_BUTTON)
     {
-      render_demo_mode_t mode = render_demo_get_mode();
-      if (mode == RENDER_DEMO_MODE_RUN)
+      power_task_cycle_game_perf_mode();
+      if (render_demo_get_mode() == RENDER_DEMO_MODE_RUN)
       {
-        render_demo_set_mode(RENDER_DEMO_MODE_IDLE);
-      }
-      else
-      {
-        render_demo_set_mode(RENDER_DEMO_MODE_RUN);
         app_display_cmd_t cmd = APP_DISPLAY_CMD_RENDER_DEMO;
         (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
-        (void)storage_request_stream_test();
       }
     }
   }

@@ -16,6 +16,13 @@ extern "C" {
 #define POWER_QUIESCE_ACK_MASK (POWER_QUIESCE_ACK_DISPLAY | POWER_QUIESCE_ACK_STORAGE | \
                                 POWER_QUIESCE_ACK_AUDIO | POWER_QUIESCE_ACK_SENSOR)
 
+typedef enum
+{
+  POWER_PERF_MODE_CRUISE = 0U,
+  POWER_PERF_MODE_MID = 1U,
+  POWER_PERF_MODE_TURBO = 2U
+} power_perf_mode_t;
+
 void power_task_run(void);
 void power_task_activity_ping(void);
 void power_task_request_sleep(void);
@@ -25,6 +32,11 @@ void power_task_set_inactivity_timeout_ms(uint32_t timeout_ms);
 uint32_t power_task_get_inactivity_timeout_ms(void);
 void power_task_set_game_sleep_allowed(uint8_t allow);
 uint8_t power_task_get_game_sleep_allowed(void);
+uint8_t power_task_consume_wake_press(uint32_t now_ms);
+void power_task_request_game_perf_mode(power_perf_mode_t mode);
+void power_task_cycle_game_perf_mode(void);
+power_perf_mode_t power_task_get_game_perf_mode(void);
+power_perf_mode_t power_task_get_perf_mode(void);
 
 uint8_t power_task_is_quiescing(void);
 void power_task_quiesce_ack(uint32_t ack_flag);

@@ -188,6 +188,7 @@ Notes:
 - AHB prescaler may change at runtime.
 - APB clocks do not need to track CPU speed.
 - PLLs are mode-based, not permanent.
+- tskPower applies Cruise in UI; game mode restores last selected boost mode (R cycles in render demo).
 
 ---
 
@@ -829,7 +830,7 @@ Implementation notes (Phase 7 streaming):
 - `tskPower` tracks `stream_ref` via APP_SYS_EVENT_STREAM_ON/OFF.
 - `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/music.wav`; it seeds from `musicWav` if missing or size mismatch.
 - `tskAudio` pulls stream bytes and decodes IMA ADPCM on the fly; Storage page A and game mode B toggle flash playback via `APP_AUDIO_CMD_FLASH_TOGGLE`.
-- `STORAGE_OP_STREAM_TEST` remains as a stress read; render demo start (game mode R) triggers it to load OSPI while the demo runs.
+- `STORAGE_OP_STREAM_TEST` remains as a stress read (currently not triggered from UI/game).
 - To avoid underruns under render load, `tskStorage` refills in a short loop and temporarily boosts priority during streaming; `tskAudio` waits for a small prebuffer before starting DMA.
 - PLL2 stays always-on for now; any future OCTOSPI clock changes must check `stream_ref` before switching.
 

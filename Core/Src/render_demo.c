@@ -19,6 +19,7 @@
 
 #include "display_renderer.h"
 #include "font8x8_basic.h"
+#include "power_task.h"
 
 #include "cmsis_os2.h"
 
@@ -56,12 +57,6 @@ static const uint8_t kBgPattern1bpp[] =
   0xB5U, 0x50U, 0xA2U, 0x2AU, 0xB0U, 0xC8U, 0xB5U, 0x70U, 0xF2U, 0x2AU, 0xF0U, 0x3CU, 0xB7U, 0xC0U, 0x0FU, 0x2FU,
   0x00U, 0x03U, 0xFCU, 0x00U, 0x00U, 0xF0U, 0x00U, 0x03U, 0xECU, 0x00U, 0x0DU, 0x63U, 0x00U, 0x3AU, 0xE8U, 0xC0U,
   0xD5U, 0x62U, 0x30U, 0xAAU, 0xE8U, 0x80U
-};
-
-/* Simple 8x8 icon for the UI bar (1bpp). */
-static const uint8_t kUiSprite8x8[] =
-{
-  0x3CU, 0x42U, 0xA5U, 0x81U, 0xA5U, 0x99U, 0x42U, 0x3CU
 };
 
 /* ------------------------- Geometry / math ------------------------------- */
@@ -165,26 +160,6 @@ static char *u2d(char *dst, uint32_t v)
 }
 
 /* Format millivolts as "X.XXV" (rounded to nearest 10mV). */
-static char *mv_to_vstr(char *dst, int32_t mv)
-{
-  if (mv < 0)
-  {
-    *dst++ = '-';
-    mv = -mv;
-  }
-
-  uint32_t v100 = (uint32_t)((mv + 5) / 10); /* 10mV rounding */
-  uint32_t ip   = v100 / 100U;
-  uint32_t fp   = v100 % 100U;
-
-  dst = u32_to_dec(dst, ip);
-  *dst++ = '.';
-  dst = u2d(dst, fp);
-  *dst++ = 'V';
-  *dst = '\0';
-  return dst;
-}
-
 static uint16_t text_width_px(const char *text)
 {
   if (text == NULL)
@@ -208,9 +183,22 @@ static render_state_t cube_blink_color(uint32_t frame_id)
   return ((frame_id & 1U) != 0U) ? RENDER_STATE_WHITE : RENDER_STATE_BLACK;
 }
 
+static const char *perf_mode_label(power_perf_mode_t mode)
+{
+  switch (mode)
+  {
+    case POWER_PERF_MODE_MID:
+      return "MID";
+    case POWER_PERF_MODE_TURBO:
+      return "TUR";
+    default:
+      return "CRU";
+  }
+}
+
 /* ---------------------------- UI drawing --------------------------------- */
 
-static void draw_ui_top(uint16_t width, uint32_t fps, int32_t batt_mv)
+static void draw_ui_top(uint16_t width, uint32_t fps, power_perf_mode_t mode)
 {
   if (s_demo.ui_bar_h == 0U)
   {
@@ -219,22 +207,25 @@ static void draw_ui_top(uint16_t width, uint32_t fps, int32_t batt_mv)
 
   renderFillRect(0U, 0U, width, s_demo.ui_bar_h, RENDER_LAYER_UI, RENDER_STATE_BLACK);
 
-  renderBlit1bpp(2U, 3U, 8U, 8U, kUiSprite8x8, 0U, RENDER_LAYER_UI, RENDER_STATE_WHITE);
-  renderDrawText(14U, 3U, "UI", RENDER_LAYER_UI, RENDER_STATE_WHITE);
+  const char *label = perf_mode_label(mode);
 
-  char buf[40];
-  char *p = buf;
+  char fps_buf[24];
+  char *p = fps_buf;
 
-  *p++ = 'F'; *p++ = 'P'; *p++ = 'S'; *p++ = ':'; *p++ = ' ';
+  *p++ = 'F'; *p++ = 'P'; *p++ = 'S'; *p++ = ' ';
   p = u32_to_dec(p, fps);
-  *p++ = ' '; *p++ = ' '; *p++ = 'V'; *p++ = ':'; *p++ = ' ';
-  p = mv_to_vstr(p, batt_mv);
   *p = '\0';
 
-  const uint16_t w = text_width_px(buf);
-  const uint16_t x = (width > (uint16_t)(w + 4U)) ? (uint16_t)(width - w - 4U) : 2U;
+  renderDrawText(4U, 3U, fps_buf, RENDER_LAYER_UI, RENDER_STATE_WHITE);
 
-  renderDrawText(x, 3U, buf, RENDER_LAYER_UI, RENDER_STATE_WHITE);
+  const char *mode_text = (label != NULL) ? label : "-";
+  const uint16_t w = text_width_px(mode_text);
+  uint16_t x = 2U;
+  if (width > (uint16_t)(w + 4U))
+  {
+    x = (uint16_t)(width - w - 4U);
+  }
+  renderDrawText(x, 3U, mode_text, RENDER_LAYER_UI, RENDER_STATE_WHITE);
 }
 
 static void draw_ui_bottom(uint16_t width, uint16_t height, uint32_t uptime_s)
@@ -606,8 +597,8 @@ void render_demo_draw(void)
     draw_wire_cube(s_demo.ay, s_demo.ax, RENDER_STATE_BLACK);
   }
 
-  /* UI overlays (battery currently stubbed as 0mV). */
-  draw_ui_top(width, s_demo.fps, 0);
+  /* UI overlays (show FPS + perf mode in top bar). */
+  draw_ui_top(width, s_demo.fps, power_task_get_perf_mode());
   draw_ui_bottom(width, height, (now_ms - s_demo.boot_ms) / 1000U);
 
   s_demo.frame_id++;

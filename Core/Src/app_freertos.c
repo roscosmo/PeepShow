@@ -533,6 +533,10 @@ static void app_input_process_event(const app_input_event_t *evt)
   }
 
   uint32_t now = osKernelGetTickCount();
+  if ((evt->pressed != 0U) && (power_task_consume_wake_press(now) != 0U))
+  {
+    return;
+  }
   uint32_t last = s_btn_last_tick[evt->button_id];
   if ((now - last) < kButtonDebounceMs)
   {
