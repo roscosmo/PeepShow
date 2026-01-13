@@ -14,13 +14,16 @@ extern UART_HandleTypeDef hlpuart1;
 void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
 
-static const uint32_t kInactivityMs = 15000U;
+static const uint32_t kInactivityMsDefault = 15000U;
+static const uint32_t kInactivityMsMin = 1000U;
 
 static uint8_t s_audio_ref = 0U;
 static uint8_t s_debug_ref = 0U;
 static uint8_t s_stream_ref = 0U;
 static volatile uint8_t s_sleep_pending = 0U;
 static volatile uint8_t s_allow_game_sleep = 1U;
+static volatile uint8_t s_sleep_enabled = 1U;
+static volatile uint32_t s_inactivity_ms = kInactivityMsDefault;
 
 static void power_task_update_debug_flag(void)
 {
@@ -134,6 +137,11 @@ static void power_task_try_sleep(void)
 {
   if (s_sleep_pending == 0U)
   {
+    return;
+  }
+  if ((s_sleep_enabled == 0U) || (s_inactivity_ms == 0U))
+  {
+    s_sleep_pending = 0U;
     return;
   }
 
@@ -266,7 +274,14 @@ void power_task_activity_ping(void)
   s_sleep_pending = 0U;
   if (tmrInactivityHandle != NULL)
   {
-    (void)osTimerStart(tmrInactivityHandle, kInactivityMs);
+    if ((s_sleep_enabled != 0U) && (s_inactivity_ms > 0U))
+    {
+      (void)osTimerStart(tmrInactivityHandle, s_inactivity_ms);
+    }
+    else
+    {
+      (void)osTimerStop(tmrInactivityHandle);
+    }
   }
   if (power_task_quiesce_active() != 0U)
   {
@@ -276,6 +291,11 @@ void power_task_activity_ping(void)
 
 void power_task_request_sleep(void)
 {
+  if ((s_sleep_enabled == 0U) || (s_inactivity_ms == 0U))
+  {
+    s_sleep_pending = 0U;
+    return;
+  }
   s_sleep_pending = 1U;
   if (qSysEventsHandle != NULL)
   {
@@ -292,6 +312,33 @@ void power_task_set_game_sleep_allowed(uint8_t allow)
 uint8_t power_task_get_game_sleep_allowed(void)
 {
   return s_allow_game_sleep;
+}
+
+void power_task_set_sleep_enabled(uint8_t enabled)
+{
+  s_sleep_enabled = (enabled != 0U) ? 1U : 0U;
+  power_task_activity_ping();
+}
+
+uint8_t power_task_get_sleep_enabled(void)
+{
+  return s_sleep_enabled;
+}
+
+void power_task_set_inactivity_timeout_ms(uint32_t timeout_ms)
+{
+  uint32_t ms = timeout_ms;
+  if (ms < kInactivityMsMin)
+  {
+    ms = kInactivityMsDefault;
+  }
+  s_inactivity_ms = ms;
+  power_task_activity_ping();
+}
+
+uint32_t power_task_get_inactivity_timeout_ms(void)
+{
+  return s_inactivity_ms;
 }
 
 uint8_t power_task_is_quiescing(void)

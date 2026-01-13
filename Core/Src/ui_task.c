@@ -8,6 +8,7 @@
 #include "storage_task.h"
 #include "ui_actions.h"
 #include "ui_router.h"
+#include "power_task.h"
 
 static bool ui_wait_for_mode(uint32_t flags, uint32_t timeout_ms)
 {
@@ -45,6 +46,9 @@ static void ui_apply_settings(uint32_t *seq_cache)
   settings_get(&data);
   audio_set_volume(data.volume);
   ui_router_set_keyclick(data.keyclick_enabled != 0U);
+  power_task_set_sleep_enabled(data.sleep_enabled);
+  power_task_set_game_sleep_allowed(data.sleep_allow_game);
+  power_task_set_inactivity_timeout_ms(data.sleep_timeout_ms);
 
   if (seq_cache != NULL)
   {

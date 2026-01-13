@@ -838,19 +838,27 @@ Implementation notes (Phase 7 streaming):
 ## Phase 8 — STOP2 Integration (only now)
 Goal: STOP2 becomes reliable without breaking peripherals.
 
-- [ ] Implement inactivity timer action in tskPower (~15s)
-- [ ] Implement quiesce barrier:
+- [x] Implement inactivity timer action in tskPower (~15s)
+- [x] Implement quiesce barrier:
   - request quiesce
   - wait for owner idles/acks
-- [ ] Initial strict rule: do not enter STOP2 while display busy
-- [ ] Wake on button/UART
-- [ ] Verify post-wake peripheral reinit order
+- [x] Initial strict rule: do not enter STOP2 while display busy
+- [x] Wake on button/UART
+- [x] Verify post-wake peripheral reinit order
 
 Acceptance:
 - Enters STOP2 reliably
 - Wakes reliably
 - No “first draw after wake” corruption
 - No stuck DMA/driver states
+
+Implementation notes (Phase 8 STOP2):
+- Inactivity timer (default 15s) posts `APP_SYS_EVENT_INACTIVITY`; `tskPower` requests sleep and restarts on any input.
+- Quiesce barrier uses `egPower` with `POWER_QUIESCE_REQ_FLAG` plus per-task ACKs (display/storage/audio/sensor); tasks pause work while quiescing.
+- STOP2 is blocked while audio is active and while storage is busy; display busy must clear before entry.
+- Wake sources: EXTI buttons + LPUART RXNE (LPUART only).
+- Post-wake reinit calls `SystemClock_Config()` then `PeriphCommonClock_Config()`; LPUART wake config is re-armed.
+- Sleep Options menu page controls sleep enable, game-mode allowance, and timeout (15s-5m), persisted in settings.
 
 ---
 

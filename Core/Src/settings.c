@@ -43,6 +43,9 @@ static void settings_set_defaults(settings_data_t *data)
   (void)memset(data, 0, sizeof(*data));
   data->keyclick_enabled = 1U;
   data->volume = 7U;
+  data->sleep_enabled = 1U;
+  data->sleep_allow_game = 1U;
+  data->sleep_timeout_ms = 15000U;
   data->menu_press_norm = 0.45f;
   data->menu_release_norm = 0.25f;
   data->menu_axis_ratio = 1.4f;
@@ -126,6 +129,30 @@ void settings_set_joy_cal(const settings_joy_cal_t *cal)
   settings_unlock();
 }
 
+void settings_set_sleep_enabled(uint8_t enabled)
+{
+  settings_lock();
+  s_settings.sleep_enabled = (enabled != 0U) ? 1U : 0U;
+  s_seq++;
+  settings_unlock();
+}
+
+void settings_set_sleep_allow_game(uint8_t allow)
+{
+  settings_lock();
+  s_settings.sleep_allow_game = (allow != 0U) ? 1U : 0U;
+  s_seq++;
+  settings_unlock();
+}
+
+void settings_set_sleep_timeout_ms(uint32_t timeout_ms)
+{
+  settings_lock();
+  s_settings.sleep_timeout_ms = timeout_ms;
+  s_seq++;
+  settings_unlock();
+}
+
 bool settings_encode(uint8_t *out, uint32_t max, uint32_t *out_len)
 {
   if ((out == NULL) || (out_len == NULL))
@@ -195,6 +222,12 @@ bool settings_decode(const uint8_t *data, uint32_t len)
   settings_data_t updated;
   settings_set_defaults(&updated);
   (void)memcpy(&updated, payload, payload_len);
+  if (hdr.version < 2U)
+  {
+    updated.sleep_enabled = 1U;
+    updated.sleep_allow_game = 1U;
+    updated.sleep_timeout_ms = 15000U;
+  }
 
   settings_lock();
   s_settings = updated;

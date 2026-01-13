@@ -19,6 +19,10 @@ extern "C" {
 void power_task_run(void);
 void power_task_activity_ping(void);
 void power_task_request_sleep(void);
+void power_task_set_sleep_enabled(uint8_t enabled);
+uint8_t power_task_get_sleep_enabled(void);
+void power_task_set_inactivity_timeout_ms(uint32_t timeout_ms);
+uint32_t power_task_get_inactivity_timeout_ms(void);
 void power_task_set_game_sleep_allowed(uint8_t allow);
 uint8_t power_task_get_game_sleep_allowed(void);
 
