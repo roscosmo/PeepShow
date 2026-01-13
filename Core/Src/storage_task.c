@@ -134,7 +134,7 @@ static void storage_stream_boost_priority(uint8_t enable)
     }
 
     s_stream_prio_prev = prio;
-    (void)osThreadSetPriority(tskStorageHandle, osPriorityAboveNormal);
+    (void)osThreadSetPriority(tskStorageHandle, osPriorityHigh);
     s_stream_prio_boost = 1U;
   }
   else
