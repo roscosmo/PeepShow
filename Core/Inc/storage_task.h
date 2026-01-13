@@ -32,8 +32,28 @@ typedef enum
   STORAGE_OP_DPD_ENTER = 9,
   STORAGE_OP_DPD_EXIT = 10,
   STORAGE_OP_SAVE_SETTINGS = 11,
-  STORAGE_OP_LOAD_SETTINGS = 12
+  STORAGE_OP_LOAD_SETTINGS = 12,
+  STORAGE_OP_STREAM_READ = 13,
+  STORAGE_OP_STREAM_TEST = 14,
+  STORAGE_OP_STREAM_OPEN = 15,
+  STORAGE_OP_STREAM_CLOSE = 16
 } storage_op_t;
+
+typedef enum
+{
+  STORAGE_STREAM_FORMAT_NONE = 0,
+  STORAGE_STREAM_FORMAT_IMA_ADPCM = 1
+} storage_stream_format_t;
+
+typedef struct
+{
+  storage_stream_format_t format;
+  uint32_t sample_rate;
+  uint32_t data_bytes;
+  uint16_t channels;
+  uint16_t block_align;
+  uint16_t samples_per_block;
+} storage_stream_info_t;
 
 typedef struct
 {
@@ -42,6 +62,12 @@ typedef struct
   int32_t last_err;
   uint32_t last_value;
   uint32_t seq;
+  uint32_t flash_size;
+  uint32_t flash_used;
+  uint32_t flash_free;
+  uint32_t music_size;
+  uint8_t stats_valid;
+  uint8_t music_present;
 } storage_status_t;
 
 void storage_task_run(void);
@@ -56,6 +82,16 @@ bool storage_request_list(const char *path);
 bool storage_request_delete(const char *path);
 bool storage_request_exists(const char *path);
 bool storage_request_dpd(bool enable);
+bool storage_request_stream_read(const char *path);
+bool storage_request_stream_test(void);
+bool storage_request_stream_open(const char *path);
+bool storage_request_stream_close(void);
+
+bool storage_stream_get_info(storage_stream_info_t *out);
+uint8_t storage_stream_is_active(void);
+uint8_t storage_stream_has_error(void);
+uint32_t storage_stream_available(void);
+uint32_t storage_stream_read(uint8_t *dst, uint32_t len);
 
 #ifdef __cplusplus
 }

@@ -1,3 +1,20 @@
+/*
+ * render_demo.c
+ *
+ * Demo/test scene renderer:
+ *  - Optional 1bpp tiled scrolling background
+ *  - Optional blinking/thick wireframe cube
+ *  - Simple top/bottom UI bars with FPS + uptime
+ *
+ * Notes:
+ *  - Background bitmap is 1bpp, stored MSB-first per byte (bit 7 = leftmost).
+ *  - This module assumes the display_renderer API provides:
+ *      renderGetWidth(), renderGetHeight(), renderFill(),
+ *      renderFillRect(), renderBlit1bpp(), renderDrawText(),
+ *      renderDrawLineThick()
+ *  - Timebase comes from CMSIS-RTOS2 ticks (osKernelGetTickCount()).
+ */
+
 #include "render_demo.h"
 
 #include "display_renderer.h"
@@ -10,13 +27,27 @@
 #include <stdint.h>
 #include <string.h>
 
-#define UI_BAR_H   14U
-#define EDGE_THICK 5U
+/* ----------------------------- Tunables ---------------------------------- */
 
-#define PATTERN_W 20U
-#define PATTERN_H 34U
+#define UI_BAR_H_PIXELS     (14U)  /* Height of top/bottom UI bars (if enabled) */
+#define EDGE_THICK_PIXELS   (5U)   /* Thickness for cube edges */
 
-static const uint8_t pattern202thread0n[] =
+#define BG_PATTERN_W_PIXELS (20U)  /* Pattern bitmap width (pixels) */
+#define BG_PATTERN_H_PIXELS (34U)  /* Pattern bitmap height (pixels) */
+
+/* -------------------------- Static assets -------------------------------- */
+
+/* 1bpp background pattern, tiled across the screen.
+ * Bitmap layout:
+ *  - Row-major
+ *  - Each row stride = ceil(width/8)
+ *  - Bit 7 is the leftmost pixel in each byte
+ *
+ * Pixel meaning in this demo:
+ *  - bit=1 -> BLACK
+ *  - bit=0 -> WHITE
+ */
+static const uint8_t kBgPattern1bpp[] =
 {
   0xD5U, 0x62U, 0x20U, 0xAAU, 0xE8U, 0x80U, 0xD5U, 0x62U, 0x20U, 0xAAU, 0xE8U, 0x80U, 0xD5U, 0x62U, 0x20U, 0xAAU,
   0xE8U, 0x80U, 0xD5U, 0xF2U, 0x20U, 0xABU, 0xFCU, 0x80U, 0xDFU, 0x0FU, 0x20U, 0xBCU, 0x03U, 0xC0U, 0xF0U, 0x00U,
@@ -27,15 +58,19 @@ static const uint8_t pattern202thread0n[] =
   0xD5U, 0x62U, 0x30U, 0xAAU, 0xE8U, 0x80U
 };
 
+/* Simple 8x8 icon for the UI bar (1bpp). */
 static const uint8_t kUiSprite8x8[] =
 {
   0x3CU, 0x42U, 0xA5U, 0x81U, 0xA5U, 0x99U, 0x42U, 0x3CU
 };
 
-typedef struct { float x, y, z; } vec3_t;
-typedef struct { int16_t x, y; } pt2_t;
+/* ------------------------- Geometry / math ------------------------------- */
 
-static const vec3_t kCubeV[8] =
+typedef struct { float   x, y, z; } vec3_t;
+typedef struct { int16_t x, y;    } pt2_t;
+
+/* Cube model vertices (centered). */
+static const vec3_t kCubeVerts[8] =
 {
   {-0.6f, -0.6f, -0.6f}, {+0.6f, -0.6f, -0.6f},
   {+0.6f, +0.6f, -0.6f}, {-0.6f, +0.6f, -0.6f},
@@ -43,53 +78,69 @@ static const vec3_t kCubeV[8] =
   {+0.6f, +0.6f, +0.6f}, {-0.6f, +0.6f, +0.6f}
 };
 
-static const uint8_t kCubeE[12][2] =
+/* Cube edges as index pairs into kCubeVerts. */
+static const uint8_t kCubeEdges[12][2] =
 {
   {0U, 1U}, {1U, 2U}, {2U, 3U}, {3U, 0U},
   {4U, 5U}, {5U, 6U}, {6U, 7U}, {7U, 4U},
   {0U, 4U}, {1U, 5U}, {2U, 6U}, {3U, 7U}
 };
 
+/* -------------------------- Demo state ----------------------------------- */
+
 typedef struct
 {
-  bool initialized;
+  bool     initialized;
+
   uint16_t width;
   uint16_t height;
+
   uint16_t ui_bar_h;
-  uint16_t game_y0;
-  uint16_t game_y1;
-  float ay;
-  float ax;
+  uint16_t game_y0;      /* Inclusive */
+  uint16_t game_y1;      /* Inclusive */
+
+  float    ay;           /* Y rotation angle (radians) */
+  float    ax;           /* X rotation angle (radians) */
+
   uint32_t frame_id;
-  uint32_t scroll_x;
+
+  uint32_t scroll_x;     /* Background scroll offset (pixels) */
   uint32_t scroll_y;
+
   uint32_t fps;
   uint32_t fps_ms_acc;
   uint32_t fps_frames;
+
   uint32_t boot_ms;
   uint32_t last_frame_ms;
-  bool bg_enabled;
-  bool cube_enabled;
+
+  bool     bg_enabled;
+  bool     cube_enabled;
 } render_demo_state_t;
 
 static render_demo_state_t s_demo =
 {
-  .initialized = false,
-  .bg_enabled = true,
+  .initialized  = false,
+  .bg_enabled   = true,
   .cube_enabled = true
 };
 
 static render_demo_mode_t s_mode = RENDER_DEMO_MODE_IDLE;
 
+/* -------------------------- Small helpers -------------------------------- */
+
 static int32_t iroundf(float x)
 {
-  return (int32_t)(x >= 0.0f ? x + 0.5f : x - 0.5f);
+  /* Symmetric rounding to nearest integer. */
+  return (int32_t)(x >= 0.0f ? (x + 0.5f) : (x - 0.5f));
 }
 
+/* Decimal formatting helpers (no printf dependency). */
 static char *u32_to_dec(char *dst, uint32_t v)
 {
   char tmp[11];
   int32_t n = 0;
+
   do
   {
     tmp[n++] = (char)('0' + (v % 10U));
@@ -100,6 +151,7 @@ static char *u32_to_dec(char *dst, uint32_t v)
   {
     *dst++ = tmp[n];
   }
+
   *dst = '\0';
   return dst;
 }
@@ -108,10 +160,11 @@ static char *u2d(char *dst, uint32_t v)
 {
   *dst++ = (char)('0' + ((v / 10U) % 10U));
   *dst++ = (char)('0' + (v % 10U));
-  *dst = '\0';
+  *dst   = '\0';
   return dst;
 }
 
+/* Format millivolts as "X.XXV" (rounded to nearest 10mV). */
 static char *mv_to_vstr(char *dst, int32_t mv)
 {
   if (mv < 0)
@@ -119,9 +172,11 @@ static char *mv_to_vstr(char *dst, int32_t mv)
     *dst++ = '-';
     mv = -mv;
   }
-  uint32_t v100 = (uint32_t)((mv + 5) / 10);
-  uint32_t ip = v100 / 100U;
-  uint32_t fp = v100 % 100U;
+
+  uint32_t v100 = (uint32_t)((mv + 5) / 10); /* 10mV rounding */
+  uint32_t ip   = v100 / 100U;
+  uint32_t fp   = v100 % 100U;
+
   dst = u32_to_dec(dst, ip);
   *dst++ = '.';
   dst = u2d(dst, fp);
@@ -130,26 +185,30 @@ static char *mv_to_vstr(char *dst, int32_t mv)
   return dst;
 }
 
-static uint16_t text_width(const char *text)
+static uint16_t text_width_px(const char *text)
 {
   if (text == NULL)
   {
     return 0U;
   }
 
-  size_t len = strlen(text);
+  const size_t len = strlen(text);
   if (len == 0U)
   {
     return 0U;
   }
 
+  /* FONT8X8_WIDTH pixels per glyph + 1px spacing between glyphs. */
   return (uint16_t)((len * (FONT8X8_WIDTH + 1U)) - 1U);
 }
 
+/* Alternate cube edge color each frame for a blinking effect. */
 static render_state_t cube_blink_color(uint32_t frame_id)
 {
   return ((frame_id & 1U) != 0U) ? RENDER_STATE_WHITE : RENDER_STATE_BLACK;
 }
+
+/* ---------------------------- UI drawing --------------------------------- */
 
 static void draw_ui_top(uint16_t width, uint32_t fps, int32_t batt_mv)
 {
@@ -159,27 +218,22 @@ static void draw_ui_top(uint16_t width, uint32_t fps, int32_t batt_mv)
   }
 
   renderFillRect(0U, 0U, width, s_demo.ui_bar_h, RENDER_LAYER_UI, RENDER_STATE_BLACK);
+
   renderBlit1bpp(2U, 3U, 8U, 8U, kUiSprite8x8, 0U, RENDER_LAYER_UI, RENDER_STATE_WHITE);
   renderDrawText(14U, 3U, "UI", RENDER_LAYER_UI, RENDER_STATE_WHITE);
 
   char buf[40];
   char *p = buf;
-  *p++ = 'F';
-  *p++ = 'P';
-  *p++ = 'S';
-  *p++ = ':';
-  *p++ = ' ';
+
+  *p++ = 'F'; *p++ = 'P'; *p++ = 'S'; *p++ = ':'; *p++ = ' ';
   p = u32_to_dec(p, fps);
-  *p++ = ' ';
-  *p++ = ' ';
-  *p++ = 'V';
-  *p++ = ':';
-  *p++ = ' ';
+  *p++ = ' '; *p++ = ' '; *p++ = 'V'; *p++ = ':'; *p++ = ' ';
   p = mv_to_vstr(p, batt_mv);
   *p = '\0';
 
-  uint16_t w = text_width(buf);
-  uint16_t x = (width > (uint16_t)(w + 4U)) ? (uint16_t)(width - w - 4U) : 2U;
+  const uint16_t w = text_width_px(buf);
+  const uint16_t x = (width > (uint16_t)(w + 4U)) ? (uint16_t)(width - w - 4U) : 2U;
+
   renderDrawText(x, 3U, buf, RENDER_LAYER_UI, RENDER_STATE_WHITE);
 }
 
@@ -190,19 +244,19 @@ static void draw_ui_bottom(uint16_t width, uint16_t height, uint32_t uptime_s)
     return;
   }
 
-  uint16_t y0 = (uint16_t)(height - s_demo.ui_bar_h);
+  const uint16_t y0 = (uint16_t)(height - s_demo.ui_bar_h);
+
   renderFillRect(0U, y0, width, s_demo.ui_bar_h, RENDER_LAYER_UI, RENDER_STATE_BLACK);
   renderDrawText(4U, (uint16_t)(y0 + 3U), "SYS", RENDER_LAYER_UI, RENDER_STATE_WHITE);
 
-  uint32_t ss = uptime_s % 60U;
-  uint32_t mm = (uptime_s / 60U) % 60U;
-  uint32_t hh = (uptime_s / 3600U) % 100U;
+  const uint32_t ss = uptime_s % 60U;
+  const uint32_t mm = (uptime_s / 60U) % 60U;
+  const uint32_t hh = (uptime_s / 3600U) % 100U; /* clamp to 2 digits */
+
   char buf[24];
   char *p = buf;
-  *p++ = 'U';
-  *p++ = 'P';
-  *p++ = ':';
-  *p++ = ' ';
+
+  *p++ = 'U'; *p++ = 'P'; *p++ = ':'; *p++ = ' ';
   p = u2d(p, hh);
   *p++ = ':';
   p = u2d(p, mm);
@@ -210,10 +264,13 @@ static void draw_ui_bottom(uint16_t width, uint16_t height, uint32_t uptime_s)
   p = u2d(p, ss);
   *p = '\0';
 
-  uint16_t w = text_width(buf);
-  uint16_t x = (width > (uint16_t)(w + 4U)) ? (uint16_t)(width - w - 4U) : 2U;
+  const uint16_t w = text_width_px(buf);
+  const uint16_t x = (width > (uint16_t)(w + 4U)) ? (uint16_t)(width - w - 4U) : 2U;
+
   renderDrawText(x, (uint16_t)(y0 + 3U), buf, RENDER_LAYER_UI, RENDER_STATE_WHITE);
 }
+
+/* ------------------------ Background drawing ----------------------------- */
 
 static void draw_bg_span(uint16_t x, uint16_t y, uint16_t w, render_state_t color)
 {
@@ -221,16 +278,20 @@ static void draw_bg_span(uint16_t x, uint16_t y, uint16_t w, render_state_t colo
   {
     return;
   }
+
   renderFillRect(x, y, w, 1U, RENDER_LAYER_BG, color);
 }
 
+/* Draw a 1bpp bitmap as a tiled background, with scroll offsets (ox, oy).
+ * This implementation uses run-length spans per scanline to reduce draw calls.
+ */
 static void draw_bg_bitmap_tiled_scrolled(const uint8_t *bmp,
                                           uint16_t bw, uint16_t bh,
                                           uint32_t ox, uint32_t oy,
-                                          uint16_t width,
+                                          uint16_t screen_w,
                                           uint16_t game_y0, uint16_t game_y1)
 {
-  if ((bmp == NULL) || (bw == 0U) || (bh == 0U) || (width == 0U))
+  if ((bmp == NULL) || (bw == 0U) || (bh == 0U) || (screen_w == 0U))
   {
     return;
   }
@@ -240,26 +301,28 @@ static void draw_bg_bitmap_tiled_scrolled(const uint8_t *bmp,
     return;
   }
 
-  uint16_t stride = (uint16_t)((bw + 7U) >> 3U);
-  uint16_t oxm = (uint16_t)(ox % bw);
-  uint16_t oym = (uint16_t)(oy % bh);
+  const uint16_t stride = (uint16_t)((bw + 7U) >> 3U); /* bytes per row */
+  const uint16_t oxm    = (uint16_t)(ox % bw);
+  const uint16_t oym    = (uint16_t)(oy % bh);
 
   for (uint16_t y = game_y0; y <= game_y1; ++y)
   {
-    uint16_t sy = (uint16_t)((y - game_y0 + oym) % bh);
+    const uint16_t sy = (uint16_t)((y - game_y0 + oym) % bh);
     const uint8_t *row = bmp + ((uint32_t)sy * stride);
 
-    uint16_t sxi = oxm;
+    uint16_t sxi = oxm;     /* source x in bitmap space [0..bw-1] */
     uint16_t span_x0 = 0U;
+
+    /* Determine initial color. */
     uint8_t byte = row[sxi >> 3U];
-    uint8_t bit = (uint8_t)(0x80U >> (sxi & 7U));
+    uint8_t bit  = (uint8_t)(0x80U >> (sxi & 7U));
     render_state_t cur = ((byte & bit) != 0U) ? RENDER_STATE_BLACK : RENDER_STATE_WHITE;
 
-    for (uint16_t x = 0U; x < width; ++x)
+    for (uint16_t x = 0U; x < screen_w; ++x)
     {
       byte = row[sxi >> 3U];
-      bit = (uint8_t)(0x80U >> (sxi & 7U));
-      render_state_t px = ((byte & bit) != 0U) ? RENDER_STATE_BLACK : RENDER_STATE_WHITE;
+      bit  = (uint8_t)(0x80U >> (sxi & 7U));
+      const render_state_t px = ((byte & bit) != 0U) ? RENDER_STATE_BLACK : RENDER_STATE_WHITE;
 
       if (x == 0U)
       {
@@ -273,6 +336,7 @@ static void draw_bg_bitmap_tiled_scrolled(const uint8_t *bmp,
         span_x0 = x;
       }
 
+      /* advance bitmap x with wrap */
       sxi++;
       if (sxi == bw)
       {
@@ -280,119 +344,117 @@ static void draw_bg_bitmap_tiled_scrolled(const uint8_t *bmp,
       }
     }
 
-    if (span_x0 < width)
+    /* Flush last span. */
+    if (span_x0 < screen_w)
     {
-      draw_bg_span(span_x0, y, (uint16_t)(width - span_x0), cur);
+      draw_bg_span(span_x0, y, (uint16_t)(screen_w - span_x0), cur);
     }
   }
 }
 
+/* -------------------------- Cube drawing --------------------------------- */
+
+/* Rotate around Y then X (simple Euler combo). */
 static void rot_yx(const vec3_t *v, float cy, float sy, float cx, float sx, vec3_t *o)
 {
-  float xx = v->x * cy + v->z * sy;
-  float zz = -v->x * sy + v->z * cy;
+  const float xx = (v->x * cy) + (v->z * sy);
+  const float zz = (-v->x * sy) + (v->z * cy);
+
   o->x = xx;
-  o->y = v->y * cx - zz * sx;
-  o->z = v->y * sx + zz * cx;
+  o->y = (v->y * cx) - (zz * sx);
+  o->z = (v->y * sx) + (zz * cx);
 }
 
+/* Perspective project 3D points to screen coordinates. */
 static void project_points(const vec3_t *vin, pt2_t *out, uint8_t n,
                            uint16_t width, uint16_t game_y0, uint16_t game_y1)
 {
-  const float z_off = 2.3f;
-  const float nearz = 0.25f;
-  const float f = 84.0f;
+  /* Camera-ish constants tuned to “look good” on small displays. */
+  const float z_off  = 2.3f;   /* push the model away from camera */
+  const float near_z = 0.25f;  /* clamp to avoid insane projection */
+  const float f      = 84.0f;  /* focal length in pixels */
+
   const float cx = (float)(width / 2U);
   const float cy = (float)((game_y0 + game_y1) / 2U);
 
   for (uint8_t i = 0U; i < n; ++i)
   {
     float z = vin[i].z + z_off;
-    if (z < nearz)
+    if (z < near_z)
     {
-      z = nearz;
+      z = near_z;
     }
-    float px = cx + (f * vin[i].x) / z;
-    float py = cy - (f * vin[i].y) / z;
+
+    const float px = cx + (f * vin[i].x) / z;
+    const float py = cy - (f * vin[i].y) / z;
+
     out[i].x = (int16_t)iroundf(px);
     out[i].y = (int16_t)iroundf(py);
   }
 }
 
+/* Draw cube edges as thick lines, clipped to the “game” region. */
 static void draw_wire_cube(float ay, float ax, render_state_t edge_color)
 {
-  vec3_t r[8];
-  pt2_t p[8];
-  float cy = cosf(ay);
-  float sy = sinf(ay);
-  float cx = cosf(ax);
-  float sx = sinf(ax);
+  vec3_t rotated[8];
+  pt2_t  proj[8];
+
+  const float cy = cosf(ay);
+  const float sy = sinf(ay);
+  const float cx = cosf(ax);
+  const float sx = sinf(ax);
 
   for (uint8_t i = 0U; i < 8U; ++i)
   {
-    rot_yx(&kCubeV[i], cy, sy, cx, sx, &r[i]);
+    rot_yx(&kCubeVerts[i], cy, sy, cx, sx, &rotated[i]);
   }
-  project_points(r, p, 8U, s_demo.width, s_demo.game_y0, s_demo.game_y1);
 
-  int32_t width = (int32_t)s_demo.width;
-  int32_t y0 = (int32_t)s_demo.game_y0;
-  int32_t y1 = (int32_t)s_demo.game_y1;
-  int32_t x_min = 0;
-  int32_t x_max = (width > 0) ? (width - 1) : 0;
-  uint16_t thick = EDGE_THICK;
+  project_points(rotated, proj, 8U, s_demo.width, s_demo.game_y0, s_demo.game_y1);
+
+  const int32_t w  = (int32_t)s_demo.width;
+  const int32_t y0 = (int32_t)s_demo.game_y0;
+  const int32_t y1 = (int32_t)s_demo.game_y1;
+
+  const int32_t x_min = 0;
+  const int32_t x_max = (w > 0) ? (w - 1) : 0;
+
+  uint16_t thick = EDGE_THICK_PIXELS;
   if (thick > 8U)
   {
-    thick = 8U;
+    thick = 8U; /* safety cap */
   }
 
   for (uint8_t e = 0U; e < 12U; ++e)
   {
-    int32_t x0 = (int32_t)p[kCubeE[e][0U]].x;
-    int32_t y0p = (int32_t)p[kCubeE[e][0U]].y;
-    int32_t x1 = (int32_t)p[kCubeE[e][1U]].x;
-    int32_t y1p = (int32_t)p[kCubeE[e][1U]].y;
+    int32_t x0 = (int32_t)proj[kCubeEdges[e][0U]].x;
+    int32_t y0p = (int32_t)proj[kCubeEdges[e][0U]].y;
+    int32_t x1 = (int32_t)proj[kCubeEdges[e][1U]].x;
+    int32_t y1p = (int32_t)proj[kCubeEdges[e][1U]].y;
 
-    if ((x0 < 0 && x1 < 0) || (x0 >= width && x1 >= width))
+    /* Trivial reject if the whole segment is off-screen horizontally. */
+    if ((x0 < 0 && x1 < 0) || (x0 >= w && x1 >= w))
     {
       continue;
     }
+
+    /* Trivial reject if the whole segment is outside vertical game window. */
     if ((y0p < y0 && y1p < y0) || (y0p > y1 && y1p > y1))
     {
       continue;
     }
 
-    if (x0 < x_min)
-    {
-      x0 = x_min;
-    }
-    else if (x0 > x_max)
-    {
-      x0 = x_max;
-    }
-    if (x1 < x_min)
-    {
-      x1 = x_min;
-    }
-    else if (x1 > x_max)
-    {
-      x1 = x_max;
-    }
-    if (y0p < y0)
-    {
-      y0p = y0;
-    }
-    else if (y0p > y1)
-    {
-      y0p = y1;
-    }
-    if (y1p < y0)
-    {
-      y1p = y0;
-    }
-    else if (y1p > y1)
-    {
-      y1p = y1;
-    }
+    /* Clamp endpoints into drawable region (simple clamp, not true line clipping). */
+    if (x0 < x_min) x0 = x_min;
+    else if (x0 > x_max) x0 = x_max;
+
+    if (x1 < x_min) x1 = x_min;
+    else if (x1 > x_max) x1 = x_max;
+
+    if (y0p < y0) y0p = y0;
+    else if (y0p > y1) y0p = y1;
+
+    if (y1p < y0) y1p = y0;
+    else if (y1p > y1) y1p = y1;
 
     renderDrawLineThick((uint16_t)x0, (uint16_t)y0p,
                         (uint16_t)x1, (uint16_t)y1p,
@@ -400,12 +462,19 @@ static void draw_wire_cube(float ay, float ax, render_state_t edge_color)
   }
 }
 
-static void render_demo_init(uint16_t width, uint16_t height, uint32_t now)
+/* ------------------------ Lifecycle / public API -------------------------- */
+
+static void render_demo_init(uint16_t width, uint16_t height, uint32_t now_ms)
 {
-  s_demo.width = width;
+  s_demo.width  = width;
   s_demo.height = height;
-  s_demo.ui_bar_h = (height > (UI_BAR_H * 2U + 1U)) ? UI_BAR_H : 0U;
+
+  /* Enable UI bars only if there is enough vertical space. */
+  s_demo.ui_bar_h = (height > (UI_BAR_H_PIXELS * 2U + 1U)) ? UI_BAR_H_PIXELS : 0U;
+
+  /* Define the game region between the bars (inclusive bounds). */
   s_demo.game_y0 = s_demo.ui_bar_h;
+
   if (height > s_demo.ui_bar_h)
   {
     s_demo.game_y1 = (uint16_t)(height - s_demo.ui_bar_h - 1U);
@@ -414,6 +483,8 @@ static void render_demo_init(uint16_t width, uint16_t height, uint32_t now)
   {
     s_demo.game_y1 = 0U;
   }
+
+  /* If the bars collapse the game region, fall back to full screen. */
   if (s_demo.game_y1 < s_demo.game_y0)
   {
     s_demo.game_y0 = 0U;
@@ -422,21 +493,26 @@ static void render_demo_init(uint16_t width, uint16_t height, uint32_t now)
 
   s_demo.ay = 0.0f;
   s_demo.ax = 0.0f;
+
   s_demo.frame_id = 0U;
+
   s_demo.scroll_x = 0U;
   s_demo.scroll_y = 0U;
-  s_demo.fps = 0U;
+
+  s_demo.fps        = 0U;
   s_demo.fps_ms_acc = 0U;
   s_demo.fps_frames = 0U;
-  s_demo.boot_ms = now;
-  s_demo.last_frame_ms = now;
+
+  s_demo.boot_ms       = now_ms;
+  s_demo.last_frame_ms = now_ms;
+
   s_demo.initialized = true;
 }
 
 void render_demo_reset(void)
 {
-  s_demo.initialized = false;
-  s_demo.bg_enabled = true;
+  s_demo.initialized  = false;
+  s_demo.bg_enabled   = true;
   s_demo.cube_enabled = true;
 }
 
@@ -448,6 +524,8 @@ void render_demo_set_mode(render_demo_mode_t mode)
   }
 
   s_mode = mode;
+
+  /* For any active demo mode, force a clean restart on next draw. */
   if (mode != RENDER_DEMO_MODE_IDLE)
   {
     render_demo_reset();
@@ -471,23 +549,28 @@ void render_demo_toggle_cube(void)
 
 void render_demo_draw(void)
 {
-  uint16_t width = renderGetWidth();
-  uint16_t height = renderGetHeight();
+  const uint16_t width  = renderGetWidth();
+  const uint16_t height = renderGetHeight();
+
   if ((width == 0U) || (height == 0U))
   {
     return;
   }
 
-  uint32_t now = osKernelGetTickCount();
+  const uint32_t now_ms = osKernelGetTickCount();
+
   if ((!s_demo.initialized) || (s_demo.width != width) || (s_demo.height != height))
   {
-    render_demo_init(width, height, now);
+    render_demo_init(width, height, now_ms);
   }
 
-  uint32_t dt = now - s_demo.last_frame_ms;
-  s_demo.last_frame_ms = now;
-  s_demo.fps_ms_acc += dt;
+  /* FPS estimation using elapsed tick accumulation. */
+  const uint32_t dt_ms = now_ms - s_demo.last_frame_ms;
+  s_demo.last_frame_ms = now_ms;
+
+  s_demo.fps_ms_acc += dt_ms;
   s_demo.fps_frames++;
+
   if (s_demo.fps_ms_acc >= 1000U)
   {
     s_demo.fps = (s_demo.fps_frames * 1000U) / s_demo.fps_ms_acc;
@@ -495,29 +578,41 @@ void render_demo_draw(void)
     s_demo.fps_frames = 0U;
   }
 
+  /* Clear render buffers (module-specific: false likely means "full clear"). */
   renderFill(false);
 
+  /* Background: tiled bitmap, scrolled over time. */
   if (s_demo.bg_enabled)
   {
-    draw_bg_bitmap_tiled_scrolled(pattern202thread0n, PATTERN_W, PATTERN_H,
-                                  s_demo.scroll_x, s_demo.scroll_y,
-                                  width, s_demo.game_y0, s_demo.game_y1);
+    draw_bg_bitmap_tiled_scrolled(kBgPattern1bpp,
+                                  BG_PATTERN_W_PIXELS,
+                                  BG_PATTERN_H_PIXELS,
+                                  s_demo.scroll_x,
+                                  s_demo.scroll_y,
+                                  width,
+                                  s_demo.game_y0,
+                                  s_demo.game_y1);
+
     s_demo.scroll_x += 1U;
     s_demo.scroll_y += 1U;
   }
 
+  /* Foreground: animated wireframe cube. */
   if (s_demo.cube_enabled)
   {
     s_demo.ay += 0.045f;
     s_demo.ax += 0.027f;
-    draw_wire_cube(s_demo.ay, s_demo.ax, cube_blink_color(s_demo.frame_id));
+
+    draw_wire_cube(s_demo.ay, s_demo.ax, RENDER_STATE_BLACK);
   }
 
+  /* UI overlays (battery currently stubbed as 0mV). */
   draw_ui_top(width, s_demo.fps, 0);
-  draw_ui_bottom(width, height, (now - s_demo.boot_ms) / 1000U);
+  draw_ui_bottom(width, height, (now_ms - s_demo.boot_ms) / 1000U);
 
   s_demo.frame_id++;
 
+  /* Single-shot mode returns to idle after one rendered frame. */
   if (s_mode == RENDER_DEMO_MODE_SINGLE)
   {
     s_mode = RENDER_DEMO_MODE_IDLE;

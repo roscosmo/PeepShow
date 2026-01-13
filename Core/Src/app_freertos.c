@@ -55,6 +55,7 @@ static const uint32_t kButtonDebounceMs = 20U;
 static uint32_t s_btn_last_tick[APP_BUTTON_COUNT];
 static uint8_t s_audio_ref = 0U;
 static uint8_t s_debug_ref = 0U;
+static uint8_t s_stream_ref = 0U;
 
 volatile uint32_t g_input_task_started = 0U;
 volatile uint32_t g_input_last_flags = 0U;
@@ -499,6 +500,18 @@ void StartTaskPower(void *argument)
           if (s_debug_ref > 0U)
           {
             s_debug_ref--;
+          }
+          break;
+        case APP_SYS_EVENT_STREAM_ON:
+          if (s_stream_ref < 0xFFU)
+          {
+            s_stream_ref++;
+          }
+          break;
+        case APP_SYS_EVENT_STREAM_OFF:
+          if (s_stream_ref > 0U)
+          {
+            s_stream_ref--;
           }
           break;
         default:

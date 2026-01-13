@@ -4,6 +4,7 @@
 #include "cmsis_os2.h"
 #include "main.h"
 #include "sounds.h"
+#include "storage_task.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -22,7 +23,8 @@ typedef enum
   AUDIO_MODE_TONE,
   AUDIO_MODE_CLICK_TONE,
   AUDIO_MODE_CLICK_WAV,
-  AUDIO_MODE_MUSIC_ADPCM
+  AUDIO_MODE_MUSIC_ADPCM,
+  AUDIO_MODE_FLASH_ADPCM
 } audio_mode_t;
 
 typedef enum
@@ -55,6 +57,16 @@ typedef struct
   uint8_t nibble_high;
 } adpcm_state_t;
 
+typedef struct
+{
+  uint16_t samples_left;
+  uint16_t block_bytes_left;
+  int16_t predictor;
+  uint8_t index;
+  uint8_t nibble_high;
+  uint8_t cur_byte;
+} adpcm_stream_state_t;
+
 static const uint32_t kAudioFlagHalf = (1UL << 0U);
 static const uint32_t kAudioFlagFull = (1UL << 1U);
 static const uint32_t kAudioFlagError = (1UL << 2U);
@@ -65,6 +77,8 @@ static const float kAudioClickHz = 2000.0f;
 static const uint32_t kAudioClickMs = 25U;
 static const uint8_t kAudioVolumeMax = 10U;
 static const uint8_t kAudioVolumeDefault = 7U;
+static const uint32_t kAudioFlashPrebufferMin = 1024U;
+static const uint32_t kAudioFlashPrebufferMax = 2048U;
 
 static const int16_t kImaStepTable[89] =
 {
@@ -104,6 +118,12 @@ static wav_info_t s_music_wav;
 static uint8_t s_music_state = 0U;
 static uint8_t s_music_done = 0U;
 static adpcm_state_t s_music_adpcm;
+static wav_info_t s_flash_wav;
+static adpcm_stream_state_t s_flash_adpcm;
+static uint32_t s_flash_bytes_left = 0U;
+static uint8_t s_flash_wait = 0U;
+static uint8_t s_flash_done = 0U;
+static uint32_t s_flash_prebuffer = 0U;
 static volatile uint8_t s_audio_volume = kAudioVolumeDefault;
 static uint8_t s_audio_power_ref = 0U;
 static uint8_t s_audio_dma_circular = 0U;
@@ -357,6 +377,50 @@ static uint8_t audio_music_prepare(void)
   return 1U;
 }
 
+static uint8_t audio_flash_prepare(void)
+{
+  storage_stream_info_t info;
+  if (!storage_stream_get_info(&info))
+  {
+    return 2U;
+  }
+
+  if ((info.format != STORAGE_STREAM_FORMAT_IMA_ADPCM) ||
+      (info.sample_rate != kAudioSampleRate) ||
+      (info.channels != 1U))
+  {
+    return 0U;
+  }
+
+  if ((info.block_align == 0U) || (info.samples_per_block == 0U))
+  {
+    return 0U;
+  }
+
+  s_flash_wav.format = WAV_FORMAT_IMA_ADPCM;
+  s_flash_wav.data = NULL;
+  s_flash_wav.sample_rate = info.sample_rate;
+  s_flash_wav.total_frames = 0U;
+  s_flash_wav.channels = info.channels;
+  s_flash_wav.bits_per_sample = 4U;
+  s_flash_wav.block_align = info.block_align;
+  s_flash_wav.samples_per_block = info.samples_per_block;
+  s_flash_wav.data_bytes = info.data_bytes;
+  s_flash_bytes_left = info.data_bytes;
+
+  uint32_t target = (uint32_t)info.block_align * 2U;
+  if (target < kAudioFlashPrebufferMin)
+  {
+    target = kAudioFlashPrebufferMin;
+  }
+  if (target > kAudioFlashPrebufferMax)
+  {
+    target = kAudioFlashPrebufferMax;
+  }
+  s_flash_prebuffer = target;
+  return 1U;
+}
+
 static void audio_adpcm_reset(adpcm_state_t *state)
 {
   if (state == NULL)
@@ -439,6 +503,150 @@ static uint8_t audio_adpcm_next_sample(const wav_info_t *wav, adpcm_state_t *sta
     code = (wav->data[state->byte_offset] >> 4) & 0x0FU;
     state->nibble_high = 0U;
     state->byte_offset++;
+  }
+
+  int32_t predictor = state->predictor;
+  int32_t step = kImaStepTable[state->index];
+  int32_t diff = step >> 3;
+  if ((code & 1U) != 0U)
+  {
+    diff += step >> 2;
+  }
+  if ((code & 2U) != 0U)
+  {
+    diff += step >> 1;
+  }
+  if ((code & 4U) != 0U)
+  {
+    diff += step;
+  }
+  if ((code & 8U) != 0U)
+  {
+    predictor -= diff;
+  }
+  else
+  {
+    predictor += diff;
+  }
+
+  if (predictor > 32767)
+  {
+    predictor = 32767;
+  }
+  else if (predictor < -32768)
+  {
+    predictor = -32768;
+  }
+
+  state->predictor = (int16_t)predictor;
+
+  int32_t index = (int32_t)state->index + (int32_t)kImaIndexTable[code];
+  if (index < 0)
+  {
+    index = 0;
+  }
+  else if (index > 88)
+  {
+    index = 88;
+  }
+  state->index = (uint8_t)index;
+
+  state->samples_left--;
+  *out = state->predictor;
+  return 1U;
+}
+
+static void audio_adpcm_stream_reset(adpcm_stream_state_t *state)
+{
+  if (state == NULL)
+  {
+    return;
+  }
+
+  state->samples_left = 0U;
+  state->block_bytes_left = 0U;
+  state->predictor = 0;
+  state->index = 0U;
+  state->nibble_high = 0U;
+  state->cur_byte = 0U;
+}
+
+static uint8_t audio_adpcm_stream_next_sample(adpcm_stream_state_t *state, int16_t *out, uint8_t *done)
+{
+  if ((state == NULL) || (out == NULL))
+  {
+    return 0U;
+  }
+
+  if (done != NULL)
+  {
+    *done = 0U;
+  }
+
+  if (state->samples_left == 0U)
+  {
+    if (s_flash_bytes_left < s_flash_wav.block_align)
+    {
+      if (done != NULL)
+      {
+        *done = 1U;
+      }
+      return 0U;
+    }
+
+    if (storage_stream_available() < 4U)
+    {
+      return 0U;
+    }
+
+    uint8_t header[4];
+    if (storage_stream_read(header, (uint32_t)sizeof(header)) != (uint32_t)sizeof(header))
+    {
+      return 0U;
+    }
+
+    state->predictor = (int16_t)((uint16_t)header[0] | ((uint16_t)header[1] << 8));
+    state->index = header[2];
+    if (state->index > 88U)
+    {
+      state->index = 88U;
+    }
+    state->samples_left = s_flash_wav.samples_per_block;
+    state->block_bytes_left = (uint16_t)(s_flash_wav.block_align - 4U);
+    state->nibble_high = 0U;
+    state->cur_byte = 0U;
+    s_flash_bytes_left -= s_flash_wav.block_align;
+
+    state->samples_left--;
+    *out = state->predictor;
+    return 1U;
+  }
+
+  if (state->block_bytes_left == 0U)
+  {
+    state->samples_left = 0U;
+    return 0U;
+  }
+
+  uint8_t code;
+  if (state->nibble_high == 0U)
+  {
+    if (storage_stream_available() < 1U)
+    {
+      return 0U;
+    }
+    if (storage_stream_read(&state->cur_byte, 1U) != 1U)
+    {
+      return 0U;
+    }
+    state->block_bytes_left--;
+    code = state->cur_byte & 0x0FU;
+    state->nibble_high = 1U;
+  }
+  else
+  {
+    code = (state->cur_byte >> 4) & 0x0FU;
+    state->nibble_high = 0U;
   }
 
   int32_t predictor = state->predictor;
@@ -725,6 +933,28 @@ static void audio_fill(int16_t *dst, uint32_t count)
     return;
   }
 
+  if (s_audio_mode == AUDIO_MODE_FLASH_ADPCM)
+  {
+    uint32_t frames = count / 2U;
+    for (uint32_t i = 0U; i < frames; ++i)
+    {
+      int16_t pcm = 0;
+      uint8_t done = 0U;
+      if (audio_adpcm_stream_next_sample(&s_flash_adpcm, &pcm, &done) == 0U)
+      {
+        if (done != 0U)
+        {
+          s_flash_done = 1U;
+        }
+        pcm = 0;
+      }
+      pcm = audio_apply_volume((int32_t)pcm);
+      dst[i * 2U] = pcm;
+      dst[i * 2U + 1U] = pcm;
+    }
+    return;
+  }
+
   if ((s_audio_mode == AUDIO_MODE_TONE) || (s_audio_mode == AUDIO_MODE_CLICK_TONE))
   {
     const float two_pi = 6.28318530718f;
@@ -787,6 +1017,8 @@ static void audio_stop(void)
     return;
   }
 
+  uint8_t was_flash = (s_audio_mode == AUDIO_MODE_FLASH_ADPCM) || (s_flash_wait != 0U);
+
   (void)HAL_SAI_DMAStop(&hsai_BlockA1);
   HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
   s_audio_state = AUDIO_STATE_IDLE;
@@ -795,8 +1027,18 @@ static void audio_stop(void)
   s_click_done = 0U;
   s_music_done = 0U;
   audio_adpcm_reset(&s_music_adpcm);
+  s_flash_done = 0U;
+  s_flash_wait = 0U;
+  s_flash_bytes_left = 0U;
+  s_flash_prebuffer = 0U;
+  audio_adpcm_stream_reset(&s_flash_adpcm);
   s_audio_mode = AUDIO_MODE_NONE;
   audio_request_power_off();
+
+  if (was_flash != 0U)
+  {
+    (void)storage_request_stream_close();
+  }
 }
 
 static void audio_click_start(void)
@@ -888,15 +1130,130 @@ static void audio_music_start(void)
   }
 }
 
+static uint8_t audio_flash_try_start(void)
+{
+  if (s_flash_wait == 0U)
+  {
+    return 0U;
+  }
+
+  if (storage_stream_has_error() != 0U)
+  {
+    s_flash_wait = 0U;
+    s_audio_mode = AUDIO_MODE_NONE;
+    (void)storage_request_stream_close();
+    return 0U;
+  }
+
+  uint8_t prep = audio_flash_prepare();
+  if (prep == 2U)
+  {
+    return 0U;
+  }
+  if (prep == 0U)
+  {
+    s_flash_wait = 0U;
+    s_audio_mode = AUDIO_MODE_NONE;
+    (void)storage_request_stream_close();
+    return 0U;
+  }
+
+  uint32_t prebuffer = (s_flash_prebuffer == 0U) ? kAudioFlashPrebufferMin : s_flash_prebuffer;
+  if (storage_stream_available() < prebuffer)
+  {
+    return 0U;
+  }
+
+  s_flash_done = 0U;
+  audio_adpcm_stream_reset(&s_flash_adpcm);
+  s_audio_mode = AUDIO_MODE_FLASH_ADPCM;
+
+  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
+
+  (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
+  (void)audio_configure_dma_circular();
+  audio_request_power_on();
+  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
+
+  if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
+                           (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]))) == HAL_OK)
+  {
+    s_audio_state = AUDIO_STATE_PLAYING;
+    s_flash_wait = 0U;
+    return 1U;
+  }
+
+  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
+  s_audio_mode = AUDIO_MODE_NONE;
+  s_flash_wait = 0U;
+  audio_request_power_off();
+  (void)storage_request_stream_close();
+  return 0U;
+}
+
+static void audio_flash_start(void)
+{
+  if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) &&
+      ((s_audio_state == AUDIO_STATE_PLAYING) || (s_flash_wait != 0U)))
+  {
+    if (s_audio_state == AUDIO_STATE_PLAYING)
+    {
+      audio_stop();
+    }
+    else
+    {
+      s_flash_wait = 0U;
+      s_flash_done = 0U;
+      s_flash_bytes_left = 0U;
+      audio_adpcm_stream_reset(&s_flash_adpcm);
+      s_audio_mode = AUDIO_MODE_NONE;
+      (void)storage_request_stream_close();
+    }
+    return;
+  }
+
+  if (s_audio_state == AUDIO_STATE_PLAYING)
+  {
+    audio_stop();
+  }
+
+  if (!storage_request_stream_open("/music.wav"))
+  {
+    return;
+  }
+
+  s_flash_wait = 1U;
+  s_flash_done = 0U;
+  s_flash_bytes_left = 0U;
+  s_audio_mode = AUDIO_MODE_FLASH_ADPCM;
+}
+
 void audio_task_run(void)
 {
   app_audio_cmd_t cmd = 0U;
 
   for (;;)
   {
+    if ((s_audio_state == AUDIO_STATE_IDLE) &&
+        (s_audio_mode == AUDIO_MODE_NONE) &&
+        (storage_stream_is_active() != 0U))
+    {
+      (void)storage_request_stream_close();
+    }
+
     if (s_audio_state == AUDIO_STATE_PLAYING)
     {
       if ((s_audio_mode == AUDIO_MODE_MUSIC_ADPCM) && (s_music_done != 0U))
+      {
+        audio_stop();
+        continue;
+      }
+      if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) && (s_flash_done != 0U))
+      {
+        audio_stop();
+        continue;
+      }
+      if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) && (storage_stream_has_error() != 0U))
       {
         audio_stop();
         continue;
@@ -957,8 +1314,18 @@ void audio_task_run(void)
     }
     else
     {
-      if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, osWaitForever) != osOK)
+      if (audio_flash_try_start() != 0U)
       {
+        continue;
+      }
+
+      uint32_t timeout = (s_flash_wait != 0U) ? 20U : osWaitForever;
+      if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, timeout) != osOK)
+      {
+        if (s_flash_wait != 0U)
+        {
+          (void)audio_flash_try_start();
+        }
         continue;
       }
     }
@@ -983,6 +1350,9 @@ void audio_task_run(void)
         break;
       case APP_AUDIO_CMD_MUSIC_TOGGLE:
         audio_music_start();
+        break;
+      case APP_AUDIO_CMD_FLASH_TOGGLE:
+        audio_flash_start();
         break;
       default:
         break;

@@ -804,7 +804,7 @@ Implementation notes (Phase 6 audio):
 - Audio playback uses SAI1 TX DMA with a static buffer; DMA half/full/error callbacks signal via thread flags.
 - SAI TX DMA uses a GPDMA linked-list circular node configured in `Core/Src/audio_task.c` to avoid rearm gaps on long playback.
 - Keyclick uses embedded `menuBeep` WAV from `Core/Inc/sounds.h` with a tone fallback; volume is applied via `audio_set_volume` and settings UI.
-- Music test uses IMA ADPCM `Assets/music.wav` embedded as `musicWav` in `Core/Inc/sounds.h`; game mode `APP_BUTTON_B` toggles playback.
+- Music test uses IMA ADPCM `Assets/music.wav` embedded as `musicWav` in `Core/Inc/sounds.h`; game mode `APP_BUTTON_B` toggles flash playback (seeds `/music.wav` if missing, then streams from littlefs).
 - SD_MODE is driven high on start and low on stop/error; GPIO init sets it low at boot in `Core/Src/main.c`.
 - `tskAudio` now posts AUDIO_ON/OFF sys events; `tskPower` tracks `audio_ref` and `debug_ref` and updates `egDebug`.
 - PLL2 gating is deferred: refcounts are tracked, but PLL2 remains always on for now.
@@ -814,15 +814,24 @@ Implementation notes (Phase 6 audio):
 ## Phase 7 — Streaming (awake-mode) using PLL2Q=64MHz
 Goal: stable streaming independent of SYSCLK.
 
-- [ ] Implement stream_ref in tskPower
-- [ ] tskStorage requests STREAM_ON before sustained streaming
-- [ ] Enforce: no OCTOSPI clock switching during streaming
+- [x] Implement stream_ref in tskPower
+- [x] tskStorage requests STREAM_ON before sustained streaming
+- [x] Enforce: no OCTOSPI clock switching during streaming
+- [x] Stream `/music.wav` from littlefs into tskAudio (IMA ADPCM) with a ring buffer
 - [ ] Stress: stream + display + UI together
 
 Acceptance:
 - Streaming does not stall UI/game
 - No corruption
 - Clock stability maintained
+
+Implementation notes (Phase 7 streaming):
+- `tskPower` tracks `stream_ref` via APP_SYS_EVENT_STREAM_ON/OFF.
+- `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/music.wav`; it seeds from `musicWav` if missing or size mismatch.
+- `tskAudio` pulls stream bytes and decodes IMA ADPCM on the fly; Storage page A and game mode B toggle flash playback via `APP_AUDIO_CMD_FLASH_TOGGLE`.
+- `STORAGE_OP_STREAM_TEST` remains as a stress read; render demo start (game mode R) triggers it to load OSPI while the demo runs.
+- To avoid underruns under render load, `tskStorage` refills in a short loop and temporarily boosts priority during streaming; `tskAudio` waits for a small prebuffer before starting DMA.
+- PLL2 stays always-on for now; any future OCTOSPI clock changes must check `stream_ref` before switching.
 
 ---
 
