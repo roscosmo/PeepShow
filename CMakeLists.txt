@@ -83,10 +83,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # Speed up hot render paths.
-set_source_files_properties(Core/Src/render_demo.c PROPERTIES
+
+set_source_files_properties(Core/Src/LS013B7DH05.c PROPERTIES
     COMPILE_FLAGS "-O3 -ffast-math -fno-math-errno -ffp-contract=fast")
 set_source_files_properties(Core/Src/display_renderer.c PROPERTIES
     COMPILE_FLAGS "-O3 -ffast-math -fno-math-errno -ffp-contract=fast")
+set_source_files_properties(Core/Src/render_demo.c PROPERTIES
+    COMPILE_FLAGS "-O3 -ffast-math -fno-math-errno -ffp-contract=fast")
+
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

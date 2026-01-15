@@ -1,3 +1,24 @@
+/*
+ * display_renderer.c
+ *
+ * Renderer + software composition for a 1bpp memory LCD.
+ *
+ * Design summary
+ * --------------
+ * - s_l8_buffer: 1 byte per pixel "state" buffer used while drawing.
+ *     Bits encode UI layer, GAME layer, background polarity, and a per-pixel
+ *     dirty marker used to minimize repacking work.
+ * - s_packed_buffer: 1bpp packed framebuffer in *panel byte order* (LINE_WIDTH
+ *     bytes per physical row). This is what the LCD driver transmits.
+ * - s_dirty_mask: per-row dirty bitset (1-based rows) used to build flush lists.
+ *
+ * Rotation
+ * --------
+ * Rotation is logical only: drawing APIs accept logical coordinates and are
+ * mapped to the physical buffer via render_map_xy(). Existing pixels are not
+ * rotated when you change s_rotation.
+ */
+
 #include "display_renderer.h"
 #include "font8x8_basic.h"
 
@@ -36,6 +57,25 @@ static uint8_t s_l8_buffer[DISPLAY_WIDTH * DISPLAY_HEIGHT] __attribute__((aligne
 static uint32_t s_dirty_mask[DIRTY_WORD_COUNT];
 static render_rotation_t s_rotation = RENDER_ROTATION_270_CW;
 
+/**
+ * @brief Validate and clamp a *physical* row span (1-based panel rows).
+ *
+ * The display flush API in this project uses 1..DISPLAY_HEIGHT inclusive row
+ * numbers (matching the panel's gate address range). This helper:
+ *   - rejects NULL pointers
+ *   - rejects 0 (invalid row index)
+ *   - clamps end points to DISPLAY_HEIGHT
+ *   - swaps the range if start > end (so the span is always increasing)
+ *
+ * @param[in,out] start_row  First row in the span (1-based, inclusive).
+ * @param[in,out] end_row    Last row in the span (1-based, inclusive).
+ * @return true if the span is valid after normalization, false otherwise.
+ */
+
+/*=============================================================================
+ * Internal helpers: span validation + coordinate mapping
+ *============================================================================*/
+
 static bool normalize_span(uint16_t *start_row, uint16_t *end_row)
 {
   if ((start_row == NULL) || (end_row == NULL))
@@ -65,6 +105,14 @@ static bool normalize_span(uint16_t *start_row, uint16_t *end_row)
   return true;
 }
 
+/**
+ * @brief Return the current *logical* width/height after rotation.
+ *
+ * The renderer stores pixels in a fixed physical layout (DISPLAY_WIDTH x
+ * DISPLAY_HEIGHT). Rotation only changes how logical (x,y) coordinates are
+ * mapped onto that physical buffer. This helper reports the logical
+ * dimensions so callers can clamp or iterate safely in the current rotation.
+ */
 static void render_get_logical_dims(uint16_t *width, uint16_t *height)
 {
   if ((width == NULL) || (height == NULL))
@@ -84,6 +132,13 @@ static void render_get_logical_dims(uint16_t *width, uint16_t *height)
   }
 }
 
+/**
+ * @brief Validate and clamp a *logical* row span (1-based logical rows).
+ *
+ * Similar to normalize_span(), but operates in the current logical coordinate
+ * space (i.e., after applying s_rotation). This is used by the public row-fill
+ * helpers that accept logical rows from UI/game code.
+ */
 static bool normalize_logical_span(uint16_t *start_row, uint16_t *end_row)
 {
   if ((start_row == NULL) || (end_row == NULL))
@@ -117,6 +172,14 @@ static bool normalize_logical_span(uint16_t *start_row, uint16_t *end_row)
   return true;
 }
 
+/**
+ * @brief Map a logical (x,y) coordinate into the physical framebuffer.
+ *
+ * @param x,y        Logical pixel coordinates (0-based).
+ * @param[out] out_x Physical x (0..DISPLAY_WIDTH-1).
+ * @param[out] out_y Physical y (0..DISPLAY_HEIGHT-1).
+ * @return true if the logical coordinate is in-bounds and was mapped.
+ */
 static bool render_map_xy(uint16_t x, uint16_t y, uint16_t *out_x, uint16_t *out_y)
 {
   if ((out_x == NULL) || (out_y == NULL))
@@ -157,16 +220,24 @@ static bool render_map_xy(uint16_t x, uint16_t y, uint16_t *out_x, uint16_t *out
   return true;
 }
 
+/** @brief Extract UI layer state bits from the packed per-pixel byte. */
+
+/*=============================================================================
+ * Internal helpers: per-pixel state composition
+ *============================================================================*/
+
 static uint8_t get_ui_state(uint8_t pixel)
 {
   return (uint8_t)((pixel & RENDER_UI_MASK) >> RENDER_UI_SHIFT);
 }
 
+/** @brief Extract game layer state bits from the packed per-pixel byte. */
 static uint8_t get_game_state(uint8_t pixel)
 {
   return (uint8_t)((pixel & RENDER_GAME_MASK) >> RENDER_GAME_SHIFT);
 }
 
+/** @brief Replace UI layer state bits in the packed per-pixel byte. */
 static uint8_t set_ui_state(uint8_t pixel, uint8_t state)
 {
   pixel &= (uint8_t)~RENDER_UI_MASK;
@@ -174,6 +245,7 @@ static uint8_t set_ui_state(uint8_t pixel, uint8_t state)
   return pixel;
 }
 
+/** @brief Replace game layer state bits in the packed per-pixel byte. */
 static uint8_t set_game_state(uint8_t pixel, uint8_t state)
 {
   pixel &= (uint8_t)~RENDER_GAME_MASK;
@@ -181,6 +253,7 @@ static uint8_t set_game_state(uint8_t pixel, uint8_t state)
   return pixel;
 }
 
+/** @brief Set/clear the background polarity bit used when no layer forces a color. */
 static uint8_t set_bg_state(uint8_t pixel, render_state_t state)
 {
   if (state == RENDER_STATE_BLACK)
@@ -194,6 +267,14 @@ static uint8_t set_bg_state(uint8_t pixel, render_state_t state)
   return pixel;
 }
 
+/**
+ * @brief Apply a draw operation to a pixel's layer state.
+ *
+ * The renderer tracks UI and GAME layers independently. A layer can be:
+ *   - BLACK / WHITE (force that color)
+ *   - TRANSPARENT (do not override; fall through to the next layer)
+ * This function writes the requested state into the appropriate layer field.
+ */
 static uint8_t apply_layer_state(uint8_t pixel, render_layer_t layer, render_state_t state)
 {
   if (layer == RENDER_LAYER_UI)
@@ -207,6 +288,7 @@ static uint8_t apply_layer_state(uint8_t pixel, render_layer_t layer, render_sta
   return set_bg_state(pixel, state);
 }
 
+/** @brief Swap RENDER_STATE_BLACK <-> RENDER_STATE_WHITE; other states unchanged. */
 static uint8_t swap_bw_state(uint8_t state)
 {
   if (state == RENDER_STATE_BLACK)
@@ -220,6 +302,16 @@ static uint8_t swap_bw_state(uint8_t state)
   return state;
 }
 
+/**
+ * @brief Resolve the final 1bpp output value for a pixel.
+ *
+ * Priority order:
+ *   1) UI layer (if BLACK/WHITE)
+ *   2) GAME layer (if BLACK/WHITE)
+ *   3) background bit (polarity)
+ *
+ * @return 1 for white, 0 for black (matches pack_row() bit meaning).
+ */
 static uint8_t resolve_pixel(uint8_t pixel)
 {
   uint8_t ui = get_ui_state(pixel);
@@ -245,6 +337,12 @@ static uint8_t resolve_pixel(uint8_t pixel)
   return ((pixel & RENDER_BG_MASK) != 0U) ? 0U : 1U;
 }
 
+/**
+ * @brief Invert a pixel in the most "authoritative" layer.
+ *
+ * If UI is forcing a color, invert UI. Else if GAME is forcing a color, invert
+ * GAME. Else toggle the background polarity bit.
+ */
 static uint8_t invert_pixel(uint8_t pixel)
 {
   uint8_t ui = get_ui_state(pixel);
@@ -262,11 +360,18 @@ static uint8_t invert_pixel(uint8_t pixel)
   return (uint8_t)(pixel ^ (uint8_t)RENDER_BG_MASK);
 }
 
+/** @brief Clear all dirty row bookkeeping (nothing pending for flush). */
+
+/*=============================================================================
+ * Internal helpers: dirty tracking (per-row bitset)
+ *============================================================================*/
+
 static void dirty_clear_all(void)
 {
   memset(s_dirty_mask, 0, sizeof(s_dirty_mask));
 }
 
+/** @brief Mark all rows dirty (forces a full flush on next take). */
 static void dirty_set_all(void)
 {
   for (uint32_t i = 0U; i < DIRTY_WORD_COUNT; ++i)
@@ -276,6 +381,7 @@ static void dirty_set_all(void)
   s_dirty_mask[DIRTY_WORD_COUNT - 1U] = DIRTY_LAST_WORD_MASK;
 }
 
+/** @brief Check if any row is dirty. */
 static bool dirty_any(void)
 {
   for (uint32_t i = 0U; i < DIRTY_WORD_COUNT; ++i)
@@ -288,6 +394,11 @@ static bool dirty_any(void)
   return false;
 }
 
+/**
+ * @brief Mark a single *physical* row dirty (1-based).
+ *
+ * This tracks per-row dirty state in s_dirty_mask (bitset).
+ */
 static void dirty_set_row(uint16_t row)
 {
   if ((row < 1U) || (row > DISPLAY_HEIGHT))
@@ -298,6 +409,7 @@ static void dirty_set_row(uint16_t row)
   s_dirty_mask[idx / 32U] |= (1UL << (idx % 32U));
 }
 
+/** @brief Clear dirty bit for a single *physical* row (1-based). */
 static void dirty_clear_row(uint16_t row)
 {
   if ((row < 1U) || (row > DISPLAY_HEIGHT))
@@ -308,6 +420,7 @@ static void dirty_clear_row(uint16_t row)
   s_dirty_mask[idx / 32U] &= ~(1UL << (idx % 32U));
 }
 
+/** @brief Test whether a *physical* row (1-based) is marked dirty. */
 static bool dirty_is_row(uint16_t row)
 {
   if ((row < 1U) || (row > DISPLAY_HEIGHT))
@@ -318,6 +431,16 @@ static bool dirty_is_row(uint16_t row)
   return ((s_dirty_mask[idx / 32U] >> (idx % 32U)) & 1UL) != 0U;
 }
 
+/**
+ * @brief Write a pixel in physical coordinates without touching dirty flags.
+ *
+ * Used internally by bulk operations that handle dirty tracking separately.
+ */
+
+/*=============================================================================
+ * Internal helpers: physical pixel accessors
+ *============================================================================*/
+
 static void render_write_pixel_physical(uint16_t x, uint16_t y, uint8_t pixel)
 {
   uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
@@ -325,6 +448,12 @@ static void render_write_pixel_physical(uint16_t x, uint16_t y, uint8_t pixel)
   dirty_set_row((uint16_t)(y + 1U));
 }
 
+/**
+ * @brief Apply a layer/state to a pixel in physical coordinates and mark dirty.
+ *
+ * Sets the pixel's per-layer state, sets the pixel dirty marker byte flag, and
+ * marks the containing row dirty for flushing.
+ */
 static void render_set_pixel_physical(uint16_t x, uint16_t y, render_layer_t layer, render_state_t state)
 {
   uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
@@ -334,6 +463,9 @@ static void render_set_pixel_physical(uint16_t x, uint16_t y, render_layer_t lay
   dirty_set_row((uint16_t)(y + 1U));
 }
 
+/**
+ * @brief Invert a pixel in physical coordinates and mark dirty.
+ */
 static void render_invert_pixel_physical(uint16_t x, uint16_t y)
 {
   uint32_t idx = ((uint32_t)y * DISPLAY_WIDTH) + x;
@@ -342,6 +474,21 @@ static void render_invert_pixel_physical(uint16_t x, uint16_t y)
   s_l8_buffer[idx] = (uint8_t)(pixel | RENDER_DIRTY_MASK);
   dirty_set_row((uint16_t)(y + 1U));
 }
+
+/**
+ * @brief Pack + clear per-pixel dirty bits for a single row.
+ *
+ * The renderer has two dirty systems:
+ *   - per-row dirty bitset (s_dirty_mask) used to build flush lists
+ *   - per-pixel dirty bit (RENDER_DIRTY_MASK) used to avoid repacking unchanged
+ *     pixels within a row
+ *
+ * This helper scans a row for any pixel-dirty marks and packs the row if needed.
+ */
+
+/*=============================================================================
+ * Internal helpers: repacking (8bpp state -> 1bpp panel payload)
+ *============================================================================*/
 
 static void mark_row_dirty_bits(uint16_t row)
 {
@@ -356,6 +503,11 @@ static void mark_row_dirty_bits(uint16_t row)
   }
 }
 
+/**
+ * @brief Mark an inclusive span of *physical* rows dirty.
+ *
+ * This only updates the per-row bitset; it does not force per-pixel dirty bits.
+ */
 static void mark_dirty_span(uint16_t start_row, uint16_t end_row)
 {
   if (!normalize_span(&start_row, &end_row))
@@ -369,6 +521,16 @@ static void mark_dirty_span(uint16_t start_row, uint16_t end_row)
   }
 }
 
+
+/**
+ * @brief Convert one physical row from 8bpp state buffer to 1bpp packed output.
+ *
+ * s_l8_buffer stores one byte per pixel with layer state + flags.
+ * s_packed_buffer stores the 1bpp line payload in panel byte order, where each
+ * byte represents 8 pixels and bit (x&7) maps to pixel x.
+ *
+ * NOTE: DISPLAY_WIDTH must be a multiple of 8 for the current packing loop.
+ */
 static void pack_row(uint16_t row)
 {
   uint32_t row_index = (uint32_t)(row - 1U);
@@ -393,6 +555,19 @@ static void pack_row(uint16_t row)
   }
 }
 
+/**
+ * @brief Initialize renderer state and clear buffers.
+ *
+ * - packed buffer is set to all-1 (white) to match panel expectations
+ * - layer/state buffer is cleared
+ * - dirty tracking is cleared
+ * - default rotation is set
+ */
+
+/*=============================================================================
+ * Public API: configuration + buffer access
+ *============================================================================*/
+
 void renderInit(void)
 {
   memset(s_packed_buffer, 0xFF, BUFFER_LENGTH);
@@ -401,6 +576,12 @@ void renderInit(void)
   s_rotation = RENDER_ROTATION_270_CW;
 }
 
+/**
+ * @brief Set logical rotation used by render_map_xy().
+ *
+ * Rotation only affects how logical drawing coordinates map to the physical
+ * framebuffer; it does not rotate/transpose existing pixels.
+ */
 void renderSetRotation(render_rotation_t rotation)
 {
   if ((rotation == RENDER_ROTATION_0) ||
@@ -412,11 +593,13 @@ void renderSetRotation(render_rotation_t rotation)
   }
 }
 
+/** @brief Get the current logical rotation. */
 render_rotation_t renderGetRotation(void)
 {
   return s_rotation;
 }
 
+/** @brief Get current logical width (after rotation). */
 uint16_t renderGetWidth(void)
 {
   uint16_t width = 0U;
@@ -425,6 +608,7 @@ uint16_t renderGetWidth(void)
   return width;
 }
 
+/** @brief Get current logical height (after rotation). */
 uint16_t renderGetHeight(void)
 {
   uint16_t width = 0U;
@@ -433,11 +617,29 @@ uint16_t renderGetHeight(void)
   return height;
 }
 
+/**
+ * @brief Get pointer to the packed 1bpp framebuffer for the LCD driver.
+ *
+ * The buffer layout is "row-major packed": LINE_WIDTH bytes per physical row.
+ */
 const uint8_t *renderGetBuffer(void)
 {
   return s_packed_buffer;
 }
 
+/**
+ * @brief Extract a list of dirty physical rows and repack them.
+ *
+ * For each dirty row:
+ *   - pack_row() is called to update the 1bpp output line
+ *   - the row dirty bit is cleared
+ *
+ * @param rows       Output array of 1-based row indices.
+ * @param max_rows   Capacity of @p rows.
+ * @param[out] out_count Number of rows written.
+ * @param[out] out_full  True if more dirty rows existed than would fit.
+ * @return true if at least one row was returned, false otherwise.
+ */
 bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count, bool *out_full)
 {
   if ((rows == NULL) || (out_count == NULL) || (max_rows == 0U))
@@ -478,6 +680,7 @@ bool renderTakeDirtyRows(uint16_t *rows, uint16_t max_rows, uint16_t *out_count,
   return (count != 0U);
 }
 
+/** @brief Public helper to mark an inclusive span of physical rows dirty. */
 void renderMarkDirtyRows(uint16_t start_row, uint16_t end_row)
 {
   mark_dirty_span(start_row, end_row);
@@ -491,6 +694,7 @@ void renderMarkDirtyRows(uint16_t start_row, uint16_t end_row)
   }
 }
 
+/** @brief Public helper to mark an explicit list of physical rows dirty. */
 void renderMarkDirtyList(const uint16_t *rows, uint16_t row_count)
 {
   if ((rows == NULL) || (row_count == 0U))
@@ -505,6 +709,17 @@ void renderMarkDirtyList(const uint16_t *rows, uint16_t row_count)
   }
 }
 
+/**
+ * @brief Fill the entire display with black or white (all layers cleared).
+ *
+ * This sets the background polarity, clears UI/GAME overrides, and marks the
+ * whole panel dirty so the caller can flush.
+ */
+
+/*=============================================================================
+ * Public API: bulk operations (fill/invert/row ops)
+ *============================================================================*/
+
 void renderFill(bool fill)
 {
   uint8_t pixel = 0U;
@@ -517,6 +732,7 @@ void renderFill(bool fill)
   dirty_set_all();
 }
 
+/** @brief Invert the entire display (layer-aware) and mark everything dirty. */
 void renderInvert(void)
 {
   for (uint32_t i = 0U; i < (uint32_t)DISPLAY_WIDTH * DISPLAY_HEIGHT; ++i)
@@ -528,6 +744,12 @@ void renderInvert(void)
   dirty_set_all();
 }
 
+/**
+ * @brief Fill a logical row span with a background color.
+ *
+ * This affects only the background bit (no forced UI/GAME pixels) and is
+ * typically used for fast clears of UI regions.
+ */
 void renderFillRows(uint16_t start_row, uint16_t end_row, bool fill)
 {
   if (!normalize_logical_span(&start_row, &end_row))
@@ -562,6 +784,7 @@ void renderFillRows(uint16_t start_row, uint16_t end_row, bool fill)
   }
 }
 
+/** @brief Invert a logical row span (layer-aware) and mark affected rows dirty. */
 void renderInvertRows(uint16_t start_row, uint16_t end_row)
 {
   if (!normalize_logical_span(&start_row, &end_row))
@@ -590,6 +813,17 @@ void renderInvertRows(uint16_t start_row, uint16_t end_row)
   }
 }
 
+/**
+ * @brief Set a single logical pixel to a given layer/state.
+ *
+ * Logical coordinates are mapped through render_map_xy() and then applied to
+ * the physical buffer, marking the row dirty.
+ */
+
+/*=============================================================================
+ * Public API: drawing primitives
+ *============================================================================*/
+
 void renderSetPixel(uint16_t x, uint16_t y, render_layer_t layer, render_state_t state)
 {
   uint16_t px = 0U;
@@ -602,6 +836,7 @@ void renderSetPixel(uint16_t x, uint16_t y, render_layer_t layer, render_state_t
   render_set_pixel_physical(px, py, layer, state);
 }
 
+/** @brief Draw a horizontal line in logical coordinates (inclusive endpoints). */
 void renderDrawHLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t layer, render_state_t state)
 {
   uint16_t width = 0U;
@@ -625,6 +860,7 @@ void renderDrawHLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t lay
   }
 }
 
+/** @brief Draw a vertical line in logical coordinates (inclusive endpoints). */
 void renderDrawVLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t layer, render_state_t state)
 {
   uint16_t width = 0U;
@@ -648,6 +884,7 @@ void renderDrawVLine(uint16_t x, uint16_t y, uint16_t length, render_layer_t lay
   }
 }
 
+/** @brief Fill an axis-aligned rectangle in logical coordinates. */
 void renderFillRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, render_layer_t layer, render_state_t state)
 {
   uint16_t logical_width = 0U;
@@ -677,6 +914,7 @@ void renderFillRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, ren
   }
 }
 
+/** @brief Draw an axis-aligned rectangle outline in logical coordinates. */
 void renderDrawRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, render_layer_t layer, render_state_t state)
 {
   if ((width == 0U) || (height == 0U))
@@ -700,6 +938,11 @@ void renderDrawRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, ren
   }
 }
 
+/**
+ * @brief Draw a general line using an integer incremental algorithm.
+ *
+ * Endpoints are inclusive. Coordinates are logical and are mapped per pixel.
+ */
 void renderDrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, render_layer_t layer, render_state_t state)
 {
   int32_t ix0 = (int32_t)x0;
@@ -734,6 +977,11 @@ void renderDrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, render_l
   }
 }
 
+/**
+ * @brief Draw a thick line by stamping perpendicular spans along the line.
+ *
+ * Thickness is in pixels. Uses clamped helpers to avoid repeated bounds checks.
+ */
 void renderDrawLineThick(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness,
                          render_layer_t layer, render_state_t state)
 {
@@ -803,6 +1051,11 @@ void renderDrawLineThick(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uin
   }
 }
 
+/**
+ * @brief Draw a horizontal line in physical space with the X range pre-clamped.
+ *
+ * Internal helper used by thick primitives to avoid redundant mapping/clamping.
+ */
 static void renderDrawHLineClamped(int32_t x0, int32_t x1, int32_t y, render_layer_t layer, render_state_t state)
 {
   uint16_t width = 0U;
@@ -839,6 +1092,7 @@ static void renderDrawHLineClamped(int32_t x0, int32_t x1, int32_t y, render_lay
   renderDrawHLine((uint16_t)x0, (uint16_t)y, span, layer, state);
 }
 
+/** @brief Physical-space vertical line helper with Y range pre-clamped. */
 static void renderDrawVLineClamped(int32_t x, int32_t y0, int32_t y1, render_layer_t layer, render_state_t state)
 {
   uint16_t width = 0U;
@@ -875,6 +1129,11 @@ static void renderDrawVLineClamped(int32_t x, int32_t y0, int32_t y1, render_lay
   renderDrawVLine((uint16_t)x, (uint16_t)y0, span, layer, state);
 }
 
+/**
+ * @brief Draw a circle outline (midpoint circle algorithm style).
+ *
+ * Uses 8-way symmetry around (x0,y0). Coordinates are logical.
+ */
 void renderDrawCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state)
 {
   int32_t x = (int32_t)radius;
@@ -902,6 +1161,7 @@ void renderDrawCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t 
   }
 }
 
+/** @brief Draw a thick circle outline by drawing multiple concentric circles. */
 void renderDrawCircleThick(uint16_t x0, uint16_t y0, uint16_t radius, uint16_t thickness, render_layer_t layer,
                            render_state_t state)
 {
@@ -935,6 +1195,7 @@ void renderDrawCircleThick(uint16_t x0, uint16_t y0, uint16_t radius, uint16_t t
   }
 }
 
+/** @brief Fill a circle by drawing horizontal spans across its diameter. */
 void renderFillCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t layer, render_state_t state)
 {
   int32_t x = (int32_t)radius;
@@ -958,6 +1219,17 @@ void renderFillCircle(uint16_t x0, uint16_t y0, uint16_t radius, render_layer_t 
   }
 }
 
+/**
+ * @brief Draw a single 8x8 font glyph from font8x8_basic.h.
+ *
+ * The glyph bitmap is interpreted LSB->MSB within each row byte (as provided by
+ * font8x8_basic). Background is left untouched (transparent where bits are 0).
+ */
+
+/*=============================================================================
+ * Public API: text rendering
+ *============================================================================*/
+
 void renderDrawChar(uint16_t x, uint16_t y, char ch, render_layer_t layer, render_state_t fg)
 {
   uint8_t code = (uint8_t)ch;
@@ -980,6 +1252,11 @@ void renderDrawChar(uint16_t x, uint16_t y, char ch, render_layer_t layer, rende
   }
 }
 
+/**
+ * @brief Draw a null-terminated ASCII string using renderDrawChar().
+ *
+ * Newlines are supported ('\n') and advance by 8 pixels vertically.
+ */
 void renderDrawText(uint16_t x, uint16_t y, const char *text, render_layer_t layer, render_state_t fg)
 {
   if (text == NULL)
@@ -1026,6 +1303,17 @@ void renderDrawText(uint16_t x, uint16_t y, const char *text, render_layer_t lay
   }
 }
 
+/**
+ * @brief Blit a 1bpp bitmap where each byte is LSB-left (bit0 is leftmost).
+ *
+ * This matches the packing used by pack_row() (bit (x&7) is pixel x).
+ * Bits that are 0 are treated as transparent; bits that are 1 draw @p fg.
+ */
+
+/*=============================================================================
+ * Public API: bitmap blitting
+ *============================================================================*/
+
 void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
                     uint16_t stride_bytes, render_layer_t layer, render_state_t fg)
 {
@@ -1054,6 +1342,11 @@ void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, con
   }
 }
 
+/**
+ * @brief Blit a 1bpp bitmap where each byte is MSB-left (bit7 is leftmost).
+ *
+ * Bits that are 0 are treated as transparent; bits that are 1 draw @p fg.
+ */
 void renderBlit1bppMsb(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
                        uint16_t stride_bytes, render_layer_t layer, render_state_t fg)
 {
