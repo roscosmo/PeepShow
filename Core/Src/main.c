@@ -26,7 +26,7 @@
 #include "app_freertos.h"
 #include "debug_uart.h"
 #include "rtos_isr_bridge.h"
-
+#include "stdio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -143,13 +143,21 @@ int main(void)
   __HAL_RCC_SRAM4_CLK_ENABLE();
 
   // Initalise the PMIC
-   ADP5360_init();
+  ADP5360_init();
 
   // Enable the VLT to the display
   HAL_GPIO_WritePin(VLT_LCD_GPIO_Port, VLT_LCD_Pin, GPIO_PIN_RESET);
 
+  // Boot the Wio E5 module
+  HAL_GPIO_WritePin(E5_RST_GPIO_Port, E5_RST_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(E5_RST_GPIO_Port, E5_RST_Pin, GPIO_PIN_RESET);
+
+  // Enable the VLT to the wio E5
+  HAL_GPIO_WritePin(VLT_E5_GPIO_Port, VLT_E5_Pin, GPIO_PIN_RESET);
+
   
-  
+  printf("Boot\r\n");
+
   /* USER CODE END 2 */
 
   /* Init scheduler */

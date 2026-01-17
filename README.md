@@ -821,6 +821,7 @@ Goal: stable streaming independent of SYSCLK.
 - [x] Enforce: no OCTOSPI clock switching during streaming
 - [x] Stream `/music.wav` from littlefs into tskAudio (IMA ADPCM) with a ring buffer
 - [x] Stress: stream + display + UI together
+- [ ] Shared buffer: allow muliple concurrent sounds
 
 Acceptance:
 - Streaming does not stall UI/game

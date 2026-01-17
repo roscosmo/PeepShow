@@ -1,5 +1,5 @@
 #include "debug_uart.h"
-
+#include "main.h"   // <- correct include (brings HAL + hlpuart1)
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -104,3 +104,12 @@ void debug_uart_printf(const char *fmt, ...)
   (void)fmt;
 #endif
 }
+
+extern UART_HandleTypeDef huart1;  // handle is defined in usart.c if you enabled LPUART1
+int __io_putchar(int ch) {
+    uint8_t c = (uint8_t)ch;
+    if (c == '\n') { uint8_t cr = '\r'; HAL_UART_Transmit(&huart1, &cr, 1, 1000); }
+    HAL_UART_Transmit(&huart1, &c, 1, 1000);
+    return ch;
+}
+
