@@ -49,6 +49,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Core/Src/ADP5360.c
+    Core/Src/AT25SL128A.c
+    Core/Src/LIS2DUX12.c
     Core/Src/debug_uart.c
     Core/Src/rtos_isr_bridge.c
     Core/Src/TMAG5273.c

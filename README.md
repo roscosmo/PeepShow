@@ -864,15 +864,15 @@ Implementation notes (Phase 8 STOP2):
 
 ---
 
-## Phase 9 — RTC 1 Hz Sleep Clock Face
+## Phase 9 — Periodic Sleep Clock Face
 Goal: minimal wake + minimal redraw + return to STOP2.
 
-- [ ] RTC wake triggers sys event to power
+- [ ] RTC alarm wake triggers sys event to power
 - [ ] In sleepface mode: power requests minimal invalidate
 - [ ] Return to STOP2 immediately after display idle
 
 Acceptance:
-- 1 Hz tick works
+- Periodic wakeup
 - No extra wakeups
 - Minimal power impact
 
