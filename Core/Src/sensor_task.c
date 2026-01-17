@@ -208,14 +208,14 @@ static void sensor_power_isofet_set(uint8_t on)
   (void)ADP5360_set_chg_function(&func);
 }
 
-static void sensor_power_lvco_update(uint32_t now_ms)
+static void sensor_power_lvco_update(uint32_t now_ms, uint8_t force)
 {
   if (s_lvco_cut_latched != 0U)
   {
     return;
   }
 
-  if ((s_lvco_last_ms != 0U) && ((now_ms - s_lvco_last_ms) < kBattCutoffPollMs))
+  if ((force == 0U) && (s_lvco_last_ms != 0U) && ((now_ms - s_lvco_last_ms) < kBattCutoffPollMs))
   {
     return;
   }
@@ -984,6 +984,10 @@ static void sensor_joy_handle_req(app_sensor_req_t req, TMAGJoy *joy, uint32_t n
   {
     sensor_power_set_enabled(0U);
   }
+  if ((req & APP_SENSOR_REQ_LVCO_TICK) != 0U)
+  {
+    sensor_power_lvco_update(now_ms, 1U);
+  }
 }
 
 static void sensor_joy_cal_step(TMAGJoy *joy, uint32_t now_ms)
@@ -1373,7 +1377,7 @@ void sensor_task_run(void)
     }
 
     sensor_power_update(now_ms);
-    sensor_power_lvco_update(now_ms);
+    sensor_power_lvco_update(now_ms, 0U);
   }
 }
 

@@ -18,7 +18,8 @@ static const ui_menu_t k_menu_joystick =
 static const ui_menu_item_t k_menu_power_items[] =
 {
   { "Battery Stats", UI_MENU_ITEM_PAGE, { .page = &PAGE_BATT_STATS } },
-  { "Sleep Options", UI_MENU_ITEM_PAGE, { .page = &PAGE_SLEEP } }
+  { "Sleep Options", UI_MENU_ITEM_PAGE, { .page = &PAGE_SLEEP } },
+  { "Set Time/Date", UI_MENU_ITEM_PAGE, { .page = &PAGE_RTC_SET } }
 };
 
 static const ui_menu_t k_menu_power =

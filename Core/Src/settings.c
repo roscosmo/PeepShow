@@ -46,6 +46,7 @@ static void settings_set_defaults(settings_data_t *data)
   data->sleep_enabled = 1U;
   data->sleep_allow_game = 1U;
   data->sleep_timeout_ms = 15000U;
+  data->sleep_face_interval_s = 1U;
   data->menu_press_norm = 0.45f;
   data->menu_release_norm = 0.25f;
   data->menu_axis_ratio = 1.4f;
@@ -153,6 +154,14 @@ void settings_set_sleep_timeout_ms(uint32_t timeout_ms)
   settings_unlock();
 }
 
+void settings_set_sleep_face_interval_s(uint32_t interval_s)
+{
+  settings_lock();
+  s_settings.sleep_face_interval_s = interval_s;
+  s_seq++;
+  settings_unlock();
+}
+
 bool settings_encode(uint8_t *out, uint32_t max, uint32_t *out_len)
 {
   if ((out == NULL) || (out_len == NULL))
@@ -227,6 +236,10 @@ bool settings_decode(const uint8_t *data, uint32_t len)
     updated.sleep_enabled = 1U;
     updated.sleep_allow_game = 1U;
     updated.sleep_timeout_ms = 15000U;
+  }
+  if (hdr.version < 3U)
+  {
+    updated.sleep_face_interval_s = 1U;
   }
 
   settings_lock();

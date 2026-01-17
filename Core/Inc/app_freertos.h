@@ -142,6 +142,7 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_SENSOR_REQ_JOY_MENU_RATIO_DEC   (1UL << 14U)
 #define APP_SENSOR_REQ_POWER_STATS_ON       (1UL << 15U)
 #define APP_SENSOR_REQ_POWER_STATS_OFF      (1UL << 16U)
+#define APP_SENSOR_REQ_LVCO_TICK            (1UL << 17U)
 #define APP_AUDIO_CMD_TOGGLE_TONE      (1UL << 0U)
 #define APP_AUDIO_CMD_STOP             (1UL << 1U)
 #define APP_AUDIO_CMD_KEYCLICK         (1UL << 2U)

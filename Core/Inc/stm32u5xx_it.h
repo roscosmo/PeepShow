@@ -68,7 +68,6 @@ void GPDMA1_Channel4_IRQHandler(void);
 void GPDMA1_Channel5_IRQHandler(void);
 void TIM6_IRQHandler(void);
 void USART1_IRQHandler(void);
-void LPUART1_IRQHandler(void);
 void SAI1_IRQHandler(void);
 void SPI3_IRQHandler(void);
 void LPDMA1_Channel0_IRQHandler(void);

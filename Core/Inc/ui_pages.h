@@ -52,6 +52,7 @@ extern const ui_page_t PAGE_MENU_INPUT;
 extern const ui_page_t PAGE_BATT_STATS;
 extern const ui_page_t PAGE_STORAGE;
 extern const ui_page_t PAGE_SLEEP;
+extern const ui_page_t PAGE_RTC_SET;
 
 #ifdef __cplusplus
 }

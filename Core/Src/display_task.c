@@ -152,7 +152,9 @@ void display_task_run(void)
 
     display_flush_dirty();
 
-    if (!s_display_busy && (render_demo_get_mode() == RENDER_DEMO_MODE_RUN))
+    if ((power_task_is_sleepface_active() == 0U) &&
+        !s_display_busy &&
+        (render_demo_get_mode() == RENDER_DEMO_MODE_RUN))
     {
       uint32_t mode_flags = 0U;
       if (egModeHandle != NULL)

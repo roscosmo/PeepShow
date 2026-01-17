@@ -660,6 +660,8 @@ static void MX_RTC_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN RTC_Init 2 */
+  (void)HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+  (void)HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
 
   /* USER CODE END RTC_Init 2 */
 

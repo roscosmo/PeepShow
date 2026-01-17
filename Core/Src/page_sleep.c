@@ -9,7 +9,7 @@
 #include <string.h>
 
 static uint8_t s_sleep_index = 0U;
-enum { SLEEP_ITEM_COUNT = 3 };
+enum { SLEEP_ITEM_COUNT = 4 };
 
 static const uint32_t k_sleep_timeout_ms[] =
 {
@@ -18,6 +18,16 @@ static const uint32_t k_sleep_timeout_ms[] =
   60000U,
   120000U,
   300000U
+};
+
+static const uint32_t k_sleepface_interval_s[] =
+{
+  1U,
+  2U,
+  5U,
+  10U,
+  30U,
+  60U
 };
 
 static void page_sleep_enter(void)
@@ -30,6 +40,18 @@ static uint8_t sleep_timeout_index(uint32_t timeout_ms)
   for (uint8_t i = 0U; i < (uint8_t)(sizeof(k_sleep_timeout_ms) / sizeof(k_sleep_timeout_ms[0])); ++i)
   {
     if (k_sleep_timeout_ms[i] == timeout_ms)
+    {
+      return i;
+    }
+  }
+  return 0U;
+}
+
+static uint8_t sleepface_interval_index(uint32_t interval_s)
+{
+  for (uint8_t i = 0U; i < (uint8_t)(sizeof(k_sleepface_interval_s) / sizeof(k_sleepface_interval_s[0])); ++i)
+  {
+    if (k_sleepface_interval_s[i] == interval_s)
     {
       return i;
     }
@@ -53,6 +75,25 @@ static const char *sleep_timeout_label(uint32_t timeout_ms, char *buf, size_t le
   else
   {
     (void)snprintf(buf, len, "%lus", (unsigned long)seconds);
+  }
+
+  return buf;
+}
+
+static const char *sleepface_interval_label(uint32_t interval_s, char *buf, size_t len)
+{
+  if ((buf == NULL) || (len < 4U))
+  {
+    return "?";
+  }
+
+  if (interval_s >= 60U)
+  {
+    (void)snprintf(buf, len, "%lum", (unsigned long)(interval_s / 60U));
+  }
+  else
+  {
+    (void)snprintf(buf, len, "%lus", (unsigned long)interval_s);
   }
 
   return buf;
@@ -92,7 +133,7 @@ static uint32_t page_sleep_event(ui_evt_t evt)
     settings_get(&data);
     bool inc = (evt == UI_EVT_INC);
 
-    if ((evt == UI_EVT_SELECT) && (s_sleep_index == 2U))
+    if ((evt == UI_EVT_SELECT) && (s_sleep_index >= 2U))
     {
       return result;
     }
@@ -111,6 +152,23 @@ static uint32_t page_sleep_event(ui_evt_t evt)
       allow = (evt == UI_EVT_SELECT) ? (uint8_t)(!allow) : (uint8_t)((inc != 0U) ? 1U : 0U);
       settings_set_sleep_allow_game(allow);
       power_task_set_game_sleep_allowed(allow);
+      result |= UI_PAGE_EVENT_RENDER;
+    }
+    else if (s_sleep_index == 2U)
+    {
+      uint8_t idx = sleepface_interval_index(data.sleep_face_interval_s);
+      uint8_t count = (uint8_t)(sizeof(k_sleepface_interval_s) / sizeof(k_sleepface_interval_s[0]));
+      if (inc)
+      {
+        idx = (uint8_t)((idx + 1U) % count);
+      }
+      else
+      {
+        idx = (idx == 0U) ? (uint8_t)(count - 1U) : (uint8_t)(idx - 1U);
+      }
+      uint32_t interval_s = k_sleepface_interval_s[idx];
+      settings_set_sleep_face_interval_s(interval_s);
+      power_task_set_sleepface_interval_s(interval_s);
       result |= UI_PAGE_EVENT_RENDER;
     }
     else
@@ -162,19 +220,25 @@ static void page_sleep_render(void)
   const char *sleep_on = (data.sleep_enabled != 0U) ? "ON" : "OFF";
   const char *game_on = (data.sleep_allow_game != 0U) ? "ON" : "OFF";
   char timeout_buf[8];
+  char face_buf[8];
   const char *timeout = sleep_timeout_label(data.sleep_timeout_ms, timeout_buf, sizeof(timeout_buf));
+  uint8_t face_idx = sleepface_interval_index(data.sleep_face_interval_s);
+  uint32_t face_s = k_sleepface_interval_s[face_idx];
+  const char *face = sleepface_interval_label(face_s, face_buf, sizeof(face_buf));
 
   const char *lines[SLEEP_ITEM_COUNT] =
   {
     "SLEEP:",
     "IN GAME:",
+    "FACE:",
     "TIMEOUT:"
   };
 
   char line_bufs[SLEEP_ITEM_COUNT][24];
   (void)snprintf(line_bufs[0], sizeof(line_bufs[0]), "%s %s", lines[0], sleep_on);
   (void)snprintf(line_bufs[1], sizeof(line_bufs[1]), "%s %s", lines[1], game_on);
-  (void)snprintf(line_bufs[2], sizeof(line_bufs[2]), "%s %s", lines[2], timeout);
+  (void)snprintf(line_bufs[2], sizeof(line_bufs[2]), "%s %s", lines[2], face);
+  (void)snprintf(line_bufs[3], sizeof(line_bufs[3]), "%s %s", lines[3], timeout);
 
   uint16_t height = renderGetHeight();
   uint16_t y = 20U;

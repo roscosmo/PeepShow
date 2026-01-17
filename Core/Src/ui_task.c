@@ -49,6 +49,7 @@ static void ui_apply_settings(uint32_t *seq_cache)
   power_task_set_sleep_enabled(data.sleep_enabled);
   power_task_set_game_sleep_allowed(data.sleep_allow_game);
   power_task_set_inactivity_timeout_ms(data.sleep_timeout_ms);
+  power_task_set_sleepface_interval_s(data.sleep_face_interval_s);
 
   if (seq_cache != NULL)
   {

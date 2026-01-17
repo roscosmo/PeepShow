@@ -4,12 +4,14 @@
 #include "audio_task.h"
 #include "display_task.h"
 #include "storage_task.h"
+#include "sleep_face.h"
 
 #include "cmsis_os2.h"
 #include "main.h"
 #include "stm32u5xx_hal_uart_ex.h"
 
 extern UART_HandleTypeDef hlpuart1;
+extern RTC_HandleTypeDef hrtc;
 
 void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
@@ -25,6 +27,9 @@ static const uint32_t kPll1R = 2U;
 static const uint32_t kFlashLatencyCruise = FLASH_LATENCY_0;
 static const uint32_t kFlashLatencyMid = FLASH_LATENCY_2;
 static const uint32_t kFlashLatencyTurbo = FLASH_LATENCY_4;
+static const uint32_t kSleepfaceHoldMs = 50U;
+static const uint32_t kSleepfaceLvcoIntervalS = 60U;
+static const uint32_t kSleepfaceIntervalDefaultS = 1U;
 
 static uint8_t s_audio_ref = 0U;
 static uint8_t s_debug_ref = 0U;
@@ -38,6 +43,14 @@ static volatile uint32_t s_wake_ignore_until = 0U;
 static volatile uint8_t s_in_game = 0U;
 static volatile power_perf_mode_t s_perf_active = POWER_PERF_MODE_CRUISE;
 static volatile power_perf_mode_t s_game_perf_mode = POWER_PERF_MODE_CRUISE;
+static volatile uint8_t s_sleepface_active = 0U;
+static volatile uint8_t s_rtc_alarm_pending = 0U;
+static volatile uint8_t s_rtc_set_pending = 0U;
+static volatile uint8_t s_sleepface_interval_dirty = 0U;
+static volatile uint32_t s_sleepface_interval_s = kSleepfaceIntervalDefaultS;
+static uint32_t s_sleepface_hold_until = 0U;
+static uint32_t s_lvco_accum_s = 0U;
+static power_rtc_datetime_t s_rtc_set_value = {0};
 
 static power_perf_mode_t power_task_sanitize_perf_mode(power_perf_mode_t mode)
 {
@@ -50,6 +63,254 @@ static power_perf_mode_t power_task_sanitize_perf_mode(power_perf_mode_t mode)
     default:
       return POWER_PERF_MODE_CRUISE;
   }
+}
+
+static uint32_t power_task_sanitize_sleepface_interval(uint32_t interval_s)
+{
+  static const uint32_t kIntervals[] = { 1U, 2U, 5U, 10U, 30U, 60U };
+  for (uint32_t i = 0U; i < (uint32_t)(sizeof(kIntervals) / sizeof(kIntervals[0])); ++i)
+  {
+    if (interval_s == kIntervals[i])
+    {
+      return interval_s;
+    }
+  }
+  return kSleepfaceIntervalDefaultS;
+}
+
+static uint8_t power_task_is_leap_year(uint16_t year)
+{
+  return ((year % 4U) == 0U) ? 1U : 0U;
+}
+
+static uint8_t power_task_days_in_month(uint16_t year, uint8_t month)
+{
+  static const uint8_t kDays[12] = { 31U, 28U, 31U, 30U, 31U, 30U, 31U, 31U, 30U, 31U, 30U, 31U };
+  if ((month == 0U) || (month > 12U))
+  {
+    return 31U;
+  }
+
+  uint8_t days = kDays[month - 1U];
+  if ((month == 2U) && (power_task_is_leap_year(year) != 0U))
+  {
+    days = 29U;
+  }
+  return days;
+}
+
+static uint8_t power_task_weekday_from_date(uint16_t year, uint8_t month, uint8_t day)
+{
+  static const uint8_t kMonthTable[12] = { 0U, 3U, 2U, 5U, 0U, 3U, 5U, 1U, 4U, 6U, 2U, 4U };
+  uint16_t y = year;
+  if (month < 3U)
+  {
+    y = (uint16_t)(y - 1U);
+  }
+
+  uint32_t w = (uint32_t)(y + (y / 4U) - (y / 100U) + (y / 400U) + kMonthTable[month - 1U] + day);
+  uint8_t dow = (uint8_t)(w % 7U); // 0=Sunday, 1=Monday, ...
+  return (dow == 0U) ? RTC_WEEKDAY_SUNDAY : dow;
+}
+
+static uint8_t power_task_rtc_get_datetime(power_rtc_datetime_t *out)
+{
+  if (out == NULL)
+  {
+    return 0U;
+  }
+
+  RTC_TimeTypeDef t = {0};
+  RTC_DateTypeDef d = {0};
+  if (HAL_RTC_GetTime(&hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+  if (HAL_RTC_GetDate(&hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+
+  out->hours = (uint8_t)t.Hours;
+  out->minutes = (uint8_t)t.Minutes;
+  out->seconds = (uint8_t)t.Seconds;
+  out->day = (uint8_t)d.Date;
+  out->month = (uint8_t)d.Month;
+  out->year = (uint16_t)(2000U + (uint16_t)d.Year);
+  return 1U;
+}
+
+static void power_task_rtc_add_seconds(power_rtc_datetime_t *dt, uint32_t delta_s)
+{
+  if (dt == NULL)
+  {
+    return;
+  }
+
+  uint32_t total = (uint32_t)dt->seconds +
+                   ((uint32_t)dt->minutes * 60U) +
+                   ((uint32_t)dt->hours * 3600U) +
+                   delta_s;
+  uint32_t days = total / 86400U;
+  total = total % 86400U;
+
+  dt->hours = (uint8_t)(total / 3600U);
+  total %= 3600U;
+  dt->minutes = (uint8_t)(total / 60U);
+  dt->seconds = (uint8_t)(total % 60U);
+
+  while (days > 0U)
+  {
+    uint8_t dim = power_task_days_in_month(dt->year, dt->month);
+    if (dt->day < dim)
+    {
+      dt->day++;
+    }
+    else
+    {
+      dt->day = 1U;
+      if (dt->month < 12U)
+      {
+        dt->month++;
+      }
+      else
+      {
+        dt->month = 1U;
+        dt->year++;
+      }
+    }
+    days--;
+  }
+}
+
+static void power_task_rtc_disable_alarm(void)
+{
+  (void)HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
+}
+
+static uint8_t power_task_rtc_schedule_alarm(uint32_t interval_s)
+{
+  uint32_t interval = power_task_sanitize_sleepface_interval(interval_s);
+  power_rtc_datetime_t now = {0};
+  if (power_task_rtc_get_datetime(&now) == 0U)
+  {
+    return 0U;
+  }
+
+  power_rtc_datetime_t alarm_dt = now;
+  power_task_rtc_add_seconds(&alarm_dt, interval);
+
+  RTC_AlarmTypeDef alarm = {0};
+  alarm.Alarm = RTC_ALARM_A;
+  alarm.AlarmMask = RTC_ALARMMASK_NONE;
+  alarm.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
+  alarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
+  alarm.AlarmDateWeekDay = alarm_dt.day;
+  alarm.AlarmTime.Hours = alarm_dt.hours;
+  alarm.AlarmTime.Minutes = alarm_dt.minutes;
+  alarm.AlarmTime.Seconds = alarm_dt.seconds;
+  alarm.AlarmTime.SubSeconds = 0U;
+  alarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  alarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+  (void)HAL_RTC_DeactivateAlarm(&hrtc, RTC_ALARM_A);
+  return (HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN) == HAL_OK) ? 1U : 0U;
+}
+
+static uint8_t power_task_rtc_set_datetime(const power_rtc_datetime_t *dt)
+{
+  if (dt == NULL)
+  {
+    return 0U;
+  }
+
+  power_rtc_datetime_t v = *dt;
+  if (v.hours > 23U)
+  {
+    v.hours = 23U;
+  }
+  if (v.minutes > 59U)
+  {
+    v.minutes = 59U;
+  }
+  if (v.seconds > 59U)
+  {
+    v.seconds = 59U;
+  }
+  if (v.month == 0U)
+  {
+    v.month = 1U;
+  }
+  if (v.month > 12U)
+  {
+    v.month = 12U;
+  }
+  uint8_t dim = power_task_days_in_month(v.year, v.month);
+  if (v.day == 0U)
+  {
+    v.day = 1U;
+  }
+  if (v.day > dim)
+  {
+    v.day = dim;
+  }
+
+  RTC_TimeTypeDef t = {0};
+  RTC_DateTypeDef d = {0};
+  t.Hours = v.hours;
+  t.Minutes = v.minutes;
+  t.Seconds = v.seconds;
+  t.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  t.StoreOperation = RTC_STOREOPERATION_RESET;
+
+  d.Date = v.day;
+  d.Month = v.month;
+  d.Year = (uint8_t)((v.year >= 2000U) ? (v.year - 2000U) : (v.year % 100U));
+  d.WeekDay = power_task_weekday_from_date(v.year, v.month, v.day);
+
+  if (HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+  if (HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+
+  return 1U;
+}
+
+static void power_task_sleepface_tick(void)
+{
+  if (s_sleepface_active == 0U)
+  {
+    return;
+  }
+
+  power_rtc_datetime_t now = {0};
+  if (power_task_rtc_get_datetime(&now) != 0U)
+  {
+    sleep_face_render(&now);
+    app_display_cmd_t cmd = APP_DISPLAY_CMD_INVALIDATE;
+    (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
+  }
+
+  s_sleepface_hold_until = osKernelGetTickCount() + kSleepfaceHoldMs;
+  s_sleep_pending = 1U;
+
+  uint32_t interval = power_task_sanitize_sleepface_interval(s_sleepface_interval_s);
+  s_lvco_accum_s += interval;
+  if (s_lvco_accum_s >= kSleepfaceLvcoIntervalS)
+  {
+    s_lvco_accum_s -= kSleepfaceLvcoIntervalS;
+    if (qSensorReqHandle != NULL)
+    {
+      app_sensor_req_t req = APP_SENSOR_REQ_LVCO_TICK;
+      (void)osMessageQueuePut(qSensorReqHandle, &req, 0U, 0U);
+    }
+  }
+
+  (void)power_task_rtc_schedule_alarm(interval);
 }
 
 static uint8_t power_task_enable_msi_cruise(void)
@@ -273,6 +534,21 @@ static uint8_t power_task_quiesce_ready(void)
   return ((flags & POWER_QUIESCE_ACK_MASK) == POWER_QUIESCE_ACK_MASK) ? 1U : 0U;
 }
 
+static void power_task_quiesce_kick(void)
+{
+  /* Wake idle owners so they can observe quiesce and ACK. */
+  if (qAudioCmdHandle != NULL)
+  {
+    app_audio_cmd_t cmd = 0U;
+    (void)osMessageQueuePut(qAudioCmdHandle, &cmd, 0U, 0U);
+  }
+  if (qStorageReqHandle != NULL)
+  {
+    app_storage_req_t req = (app_storage_req_t)STORAGE_OP_NONE;
+    (void)osMessageQueuePut(qStorageReqHandle, &req, 0U, 0U);
+  }
+}
+
 static void power_task_configure_lpuart_wakeup(void)
 {
   UART_WakeUpTypeDef wake = {0};
@@ -291,7 +567,7 @@ static void power_task_enter_stop2(void)
   SystemClock_Config();
   PeriphCommonClock_Config();
   s_perf_active = POWER_PERF_MODE_CRUISE;
-  if (s_in_game != 0U)
+  if ((s_in_game != 0U) && (s_sleepface_active == 0U) && (s_rtc_alarm_pending == 0U))
   {
     (void)power_task_apply_perf_mode(s_game_perf_mode);
   }
@@ -317,22 +593,17 @@ static void power_task_try_sleep(void)
     return;
   }
 
+  if (s_sleepface_hold_until != 0U)
+  {
+    uint32_t now_ms = osKernelGetTickCount();
+    if ((int32_t)(now_ms - s_sleepface_hold_until) < 0)
+    {
+      return;
+    }
+    s_sleepface_hold_until = 0U;
+  }
+
   if (audio_is_active() != 0U)
-  {
-    return;
-  }
-
-  if (power_task_quiesce_active() == 0U)
-  {
-    power_task_quiesce_set(1U);
-  }
-
-  if (power_task_quiesce_ready() == 0U)
-  {
-    return;
-  }
-
-  if (display_is_busy())
   {
     return;
   }
@@ -342,8 +613,33 @@ static void power_task_try_sleep(void)
     return;
   }
 
+  if (power_task_quiesce_active() == 0U)
+  {
+    power_task_quiesce_set(1U);
+    power_task_quiesce_kick();
+  }
+
+  if (power_task_quiesce_ready() == 0U)
+  {
+    return;
+  }
+
+  if (s_sleepface_active == 0U)
+  {
+    s_sleepface_active = 1U;
+    s_lvco_accum_s = 0U;
+    (void)power_task_rtc_schedule_alarm(s_sleepface_interval_s);
+  }
+
   s_sleep_pending = 0U;
   power_task_enter_stop2();
+  if (s_rtc_alarm_pending != 0U)
+  {
+    s_sleep_pending = 1U;
+    power_task_quiesce_set(0U);
+    return;
+  }
+
   s_wake_ignore = 1U;
   s_wake_ignore_until = osKernelGetTickCount() + 250U;
   power_task_quiesce_set(0U);
@@ -367,6 +663,10 @@ void power_task_run(void)
   for (;;)
   {
     uint32_t timeout = (s_sleep_pending != 0U) ? 20U : osWaitForever;
+    if ((s_rtc_alarm_pending != 0U) || (s_rtc_set_pending != 0U) || (s_sleepface_interval_dirty != 0U))
+    {
+      timeout = 0U;
+    }
     if (osMessageQueueGet(qSysEventsHandle, &sys_event, NULL, timeout) == osOK)
     {
       g_sys_event_count++;
@@ -442,12 +742,53 @@ void power_task_run(void)
       power_task_update_debug_flag();
     }
 
+    if (s_rtc_set_pending != 0U)
+    {
+      power_rtc_datetime_t dt = s_rtc_set_value;
+      s_rtc_set_pending = 0U;
+      power_task_rtc_disable_alarm();
+      (void)power_task_rtc_set_datetime(&dt);
+      if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
+      {
+        (void)power_task_rtc_schedule_alarm(s_sleepface_interval_s);
+      }
+    }
+
+    if (s_sleepface_interval_dirty != 0U)
+    {
+      s_sleepface_interval_dirty = 0U;
+      if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
+      {
+        (void)power_task_rtc_schedule_alarm(s_sleepface_interval_s);
+      }
+    }
+
+    if (s_rtc_alarm_pending != 0U)
+    {
+      s_rtc_alarm_pending = 0U;
+      if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
+      {
+        power_task_sleepface_tick();
+      }
+      else
+      {
+        power_task_rtc_disable_alarm();
+      }
+    }
+
     power_task_try_sleep();
   }
 }
 
 void power_task_activity_ping(void)
 {
+  if (s_sleepface_active != 0U)
+  {
+    s_sleepface_active = 0U;
+    s_lvco_accum_s = 0U;
+    power_task_rtc_disable_alarm();
+  }
+
   s_sleep_pending = 0U;
   if (tmrInactivityHandle != NULL)
   {
@@ -518,6 +859,18 @@ uint32_t power_task_get_inactivity_timeout_ms(void)
   return s_inactivity_ms;
 }
 
+void power_task_set_sleepface_interval_s(uint32_t interval_s)
+{
+  uint32_t v = power_task_sanitize_sleepface_interval(interval_s);
+  s_sleepface_interval_s = v;
+  s_sleepface_interval_dirty = 1U;
+}
+
+uint32_t power_task_get_sleepface_interval_s(void)
+{
+  return s_sleepface_interval_s;
+}
+
 uint8_t power_task_consume_wake_press(uint32_t now_ms)
 {
   if (s_wake_ignore == 0U)
@@ -576,6 +929,11 @@ power_perf_mode_t power_task_get_perf_mode(void)
   return s_perf_active;
 }
 
+uint8_t power_task_is_sleepface_active(void)
+{
+  return s_sleepface_active;
+}
+
 uint8_t power_task_is_quiescing(void)
 {
   return power_task_quiesce_active();
@@ -599,4 +957,21 @@ void power_task_quiesce_clear(uint32_t ack_flag)
   }
 
   (void)osEventFlagsClear(egPowerHandle, ack_flag);
+}
+
+void power_task_request_rtc_set(const power_rtc_datetime_t *dt)
+{
+  if (dt == NULL)
+  {
+    return;
+  }
+
+  s_rtc_set_value = *dt;
+  s_rtc_set_pending = 1U;
+}
+
+void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc_handle)
+{
+  (void)hrtc_handle;
+  s_rtc_alarm_pending = 1U;
 }
