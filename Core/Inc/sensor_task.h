@@ -54,10 +54,39 @@ typedef struct
   uint8_t valid;
 } sensor_power_status_t;
 
+typedef struct
+{
+  float accel_mg[3];
+  int16_t accel_raw[3];
+  float temp_c;
+  uint16_t step_count;
+  uint32_t sample_seq;
+  uint32_t error_count;
+  uint8_t device_id;
+  uint8_t i2c_addr_7b;
+  uint8_t odr;
+  uint8_t fs;
+  uint8_t bw;
+  uint8_t accel_valid;
+  uint8_t temp_valid;
+  uint8_t status_valid;
+  uint8_t emb_valid;
+  uint8_t status_drdy;
+  uint8_t status_boot;
+  uint8_t status_sw_reset;
+  uint8_t emb_step;
+  uint8_t emb_tilt;
+  uint8_t emb_sigmot;
+  uint8_t id_valid;
+  uint8_t init_ok;
+  uint8_t step_valid;
+} sensor_lis2_status_t;
+
 void sensor_task_run(void);
 void sensor_joy_get_status(sensor_joy_status_t *out);
 void sensor_joy_get_menu_params(sensor_joy_menu_params_t *out);
 void sensor_power_get_status(sensor_power_status_t *out);
+void sensor_lis2_get_status(sensor_lis2_status_t *out);
 
 #ifdef __cplusplus
 }

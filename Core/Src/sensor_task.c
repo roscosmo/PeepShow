@@ -4,6 +4,7 @@
 #include "cmsis_os2.h"
 #include "tmag5273.h"
 #include "ADP5360.h"
+#include "LIS2DUX12.h"
 #include "settings.h"
 #include "power_task.h"
 
@@ -73,6 +74,18 @@ static uint32_t s_lvco_last_ms = 0U;
 static uint8_t s_lvco_low_count = 0U;
 static uint8_t s_lvco_cut_latched = 0U;
 static uint32_t s_settings_seq = 0U;
+static sensor_lis2_status_t s_lis2_status;
+static stmdev_ctx_t s_lis2_ctx;
+static lis2dux12_priv_t s_lis2_priv;
+static lis2dux12_md_t s_lis2_md;
+static uint8_t s_lis2_enabled = 0U;
+static uint8_t s_lis2_inited = 0U;
+static uint32_t s_lis2_last_ms = 0U;
+static uint32_t s_lis2_init_last_ms = 0U;
+static uint16_t s_lis2_addr_w = 0U;
+static uint8_t s_lis2_addr_7b = 0U;
+static uint8_t s_lis2_suspended = 0U;
+static uint32_t s_lis2_error_last_ms = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
 static const uint32_t kJoyCalNeutralMs = 1500U;
@@ -92,6 +105,11 @@ static const uint32_t kPowerStatsTickMs = 1000U;
 static const uint32_t kBattCutoffPollMs = 60000U;
 static const uint16_t kBattCutoffMv = 3500U;
 static const uint8_t kBattCutoffDebounce = 2U;
+static const uint32_t kLis2PollMs = 100U;
+static const uint32_t kLis2InitRetryMs = 1000U;
+static const uint32_t kLis2I2cTimeoutMs = 50U;
+static const uint32_t kLis2ErrorBackoffMs = 1000U;
+static const uint8_t kLis2Addr7b = 0x18U;
 
 static float s_menu_press_norm = 0.45f;
 static float s_menu_release_norm = 0.25f;
@@ -318,6 +336,339 @@ static void sensor_power_update(uint32_t now_ms)
   {
     s_power_status.valid = 0U;
   }
+}
+
+static void sensor_lis2_reset_state(void)
+{
+  (void)memset(&s_lis2_status, 0, sizeof(s_lis2_status));
+  (void)memset(&s_lis2_priv, 0, sizeof(s_lis2_priv));
+  s_lis2_enabled = 0U;
+  s_lis2_inited = 0U;
+  s_lis2_last_ms = 0U;
+  s_lis2_init_last_ms = 0U;
+  s_lis2_addr_7b = kLis2Addr7b;
+  s_lis2_addr_w = (uint16_t)(kLis2Addr7b << 1U);
+  s_lis2_suspended = 0U;
+  s_lis2_error_last_ms = 0U;
+  s_lis2_ctx.write_reg = NULL;
+  s_lis2_ctx.read_reg = NULL;
+  s_lis2_ctx.mdelay = NULL;
+  s_lis2_ctx.handle = NULL;
+  s_lis2_ctx.priv_data = &s_lis2_priv;
+  s_lis2_status.i2c_addr_7b = kLis2Addr7b;
+}
+
+static uint16_t sensor_lis2_addr_to_w(uint8_t addr_7b)
+{
+  if (addr_7b <= 0x7FU)
+  {
+    return (uint16_t)(addr_7b << 1U);
+  }
+  return (uint16_t)addr_7b;
+}
+
+static int32_t sensor_lis2_read(void *handle, uint8_t reg, uint8_t *data, uint16_t len)
+{
+  I2C_HandleTypeDef *hi2c = (I2C_HandleTypeDef *)handle;
+  if ((hi2c == NULL) || (s_lis2_addr_w == 0U) || (data == NULL) || (len == 0U))
+  {
+    return -1;
+  }
+
+  HAL_StatusTypeDef st = HAL_I2C_Mem_Read(hi2c, s_lis2_addr_w, reg,
+                                         I2C_MEMADD_SIZE_8BIT,
+                                         data, len, kLis2I2cTimeoutMs);
+  return (st == HAL_OK) ? 0 : -1;
+}
+
+static int32_t sensor_lis2_write(void *handle, uint8_t reg, const uint8_t *data, uint16_t len)
+{
+  I2C_HandleTypeDef *hi2c = (I2C_HandleTypeDef *)handle;
+  if ((hi2c == NULL) || (s_lis2_addr_w == 0U) || (data == NULL) || (len == 0U))
+  {
+    return -1;
+  }
+
+  HAL_StatusTypeDef st = HAL_I2C_Mem_Write(hi2c, s_lis2_addr_w, reg,
+                                          I2C_MEMADD_SIZE_8BIT,
+                                          (uint8_t *)data, len, kLis2I2cTimeoutMs);
+  return (st == HAL_OK) ? 0 : -1;
+}
+
+static void sensor_lis2_delay(uint32_t ms)
+{
+  osDelay(ms);
+}
+
+static void sensor_lis2_note_error(uint32_t now_ms)
+{
+  if ((s_lis2_error_last_ms != 0U) &&
+      ((now_ms - s_lis2_error_last_ms) < kLis2ErrorBackoffMs))
+  {
+    return;
+  }
+
+  s_lis2_error_last_ms = now_ms;
+  s_lis2_status.error_count++;
+}
+
+static int32_t sensor_lis2_probe(uint8_t *whoami)
+{
+  s_lis2_addr_7b = kLis2Addr7b;
+  s_lis2_addr_w = sensor_lis2_addr_to_w(s_lis2_addr_7b);
+
+  if (HAL_I2C_IsDeviceReady(&hi2c3, s_lis2_addr_w, 2U, kLis2I2cTimeoutMs) != HAL_OK)
+  {
+    return -1;
+  }
+
+  uint8_t id = 0U;
+  if ((lis2dux12_device_id_get(&s_lis2_ctx, &id) != 0) ||
+      (id != LIS2DUX12_ID))
+  {
+    return -1;
+  }
+
+  if (whoami != NULL)
+  {
+    *whoami = id;
+  }
+  return 0;
+}
+
+static int32_t sensor_lis2_init_device(void)
+{
+  if (s_lis2_inited != 0U)
+  {
+    return 0;
+  }
+
+  s_lis2_ctx.write_reg = sensor_lis2_write;
+  s_lis2_ctx.read_reg = sensor_lis2_read;
+  s_lis2_ctx.mdelay = sensor_lis2_delay;
+  s_lis2_ctx.handle = &hi2c3;
+  s_lis2_ctx.priv_data = &s_lis2_priv;
+
+  s_lis2_md.odr = LIS2DUX12_50Hz_LP;
+  s_lis2_md.fs = LIS2DUX12_2g;
+  s_lis2_md.bw = LIS2DUX12_ODR_div_2;
+
+  uint8_t whoami = 0U;
+  if (sensor_lis2_probe(&whoami) != 0)
+  {
+    s_lis2_status.id_valid = 0U;
+    s_lis2_status.init_ok = 0U;
+    s_lis2_status.device_id = 0U;
+    s_lis2_status.i2c_addr_7b = s_lis2_addr_7b;
+    sensor_lis2_note_error(osKernelGetTickCount());
+    return -1;
+  }
+
+  s_lis2_status.device_id = whoami;
+  s_lis2_status.i2c_addr_7b = s_lis2_addr_7b;
+  s_lis2_status.id_valid = 1U;
+
+  int32_t ret = 0;
+  ret |= lis2dux12_init_set(&s_lis2_ctx);
+  ret |= lis2dux12_temp_disable_set(&s_lis2_ctx, 0U);
+  ret |= lis2dux12_mode_set(&s_lis2_ctx, &s_lis2_md);
+  if (ret != 0)
+  {
+    s_lis2_status.init_ok = 0U;
+    sensor_lis2_note_error(osKernelGetTickCount());
+    return -1;
+  }
+
+  s_lis2_status.init_ok = 1U;
+  s_lis2_status.odr = (uint8_t)s_lis2_md.odr;
+  s_lis2_status.fs = (uint8_t)s_lis2_md.fs;
+  s_lis2_status.bw = (uint8_t)s_lis2_md.bw;
+  s_lis2_inited = 1U;
+
+  return 0;
+}
+
+static void sensor_lis2_set_enabled(uint8_t enable)
+{
+  uint8_t next = (enable != 0U) ? 1U : 0U;
+  if (next == s_lis2_enabled)
+  {
+    return;
+  }
+
+  s_lis2_enabled = next;
+  s_lis2_last_ms = 0U;
+  s_lis2_init_last_ms = 0U;
+  s_lis2_suspended = 0U;
+
+  if (s_lis2_enabled == 0U)
+  {
+    if (s_lis2_inited != 0U)
+    {
+      lis2dux12_md_t md_off = s_lis2_md;
+      md_off.odr = LIS2DUX12_OFF;
+      if (lis2dux12_mode_set(&s_lis2_ctx, &md_off) != 0)
+      {
+        sensor_lis2_note_error(osKernelGetTickCount());
+      }
+    }
+    return;
+  }
+
+  (void)sensor_lis2_init_device();
+}
+
+static void sensor_lis2_handle_req(app_sensor_req_t req)
+{
+  if ((req & APP_SENSOR_REQ_LIS2_ON) != 0U)
+  {
+    sensor_lis2_set_enabled(1U);
+  }
+  if ((req & APP_SENSOR_REQ_LIS2_OFF) != 0U)
+  {
+    sensor_lis2_set_enabled(0U);
+  }
+}
+
+static void sensor_lis2_suspend(void)
+{
+  if ((s_lis2_enabled == 0U) || (s_lis2_inited == 0U) || (s_lis2_suspended != 0U))
+  {
+    return;
+  }
+
+  lis2dux12_md_t md_off = s_lis2_md;
+  md_off.odr = LIS2DUX12_OFF;
+  if (lis2dux12_mode_set(&s_lis2_ctx, &md_off) != 0)
+  {
+    sensor_lis2_note_error(osKernelGetTickCount());
+    return;
+  }
+
+  s_lis2_suspended = 1U;
+}
+
+static void sensor_lis2_resume(void)
+{
+  if (s_lis2_suspended == 0U)
+  {
+    return;
+  }
+
+  if ((s_lis2_enabled == 0U) || (s_lis2_inited == 0U))
+  {
+    s_lis2_suspended = 0U;
+    return;
+  }
+
+  if (lis2dux12_mode_set(&s_lis2_ctx, &s_lis2_md) != 0)
+  {
+    sensor_lis2_note_error(osKernelGetTickCount());
+    return;
+  }
+
+  s_lis2_suspended = 0U;
+  s_lis2_last_ms = 0U;
+}
+
+static void sensor_lis2_poll(uint32_t now_ms)
+{
+  if ((s_lis2_enabled == 0U) || (s_lis2_suspended != 0U) || !sensor_is_ui_mode())
+  {
+    return;
+  }
+
+  if (s_lis2_inited == 0U)
+  {
+    if ((s_lis2_init_last_ms != 0U) &&
+        ((now_ms - s_lis2_init_last_ms) < kLis2InitRetryMs))
+    {
+      return;
+    }
+
+    s_lis2_init_last_ms = now_ms;
+    if (sensor_lis2_init_device() != 0)
+    {
+      sensor_lis2_note_error(now_ms);
+    }
+    return;
+  }
+
+  if ((s_lis2_last_ms != 0U) && ((now_ms - s_lis2_last_ms) < kLis2PollMs))
+  {
+    return;
+  }
+
+  s_lis2_last_ms = now_ms;
+
+  lis2dux12_status_t status = {0};
+  lis2dux12_embedded_status_t emb = {0};
+  lis2dux12_xl_data_t xl = {0};
+  lis2dux12_outt_data_t temp = {0};
+
+  int32_t ret_status = lis2dux12_status_get(&s_lis2_ctx, &status);
+  int32_t ret_emb = lis2dux12_embedded_status_get(&s_lis2_ctx, &emb);
+  int32_t ret_xl = lis2dux12_xl_data_get(&s_lis2_ctx, &s_lis2_md, &xl);
+  int32_t ret_temp = lis2dux12_outt_data_get(&s_lis2_ctx, &temp);
+
+  s_lis2_status.status_valid = (ret_status == 0) ? 1U : 0U;
+  if (ret_status == 0)
+  {
+    s_lis2_status.status_drdy = status.drdy;
+    s_lis2_status.status_boot = status.boot;
+    s_lis2_status.status_sw_reset = status.sw_reset;
+  }
+  else
+  {
+    s_lis2_status.status_drdy = 0U;
+    s_lis2_status.status_boot = 0U;
+    s_lis2_status.status_sw_reset = 0U;
+  }
+
+  s_lis2_status.emb_valid = (ret_emb == 0) ? 1U : 0U;
+  if (ret_emb == 0)
+  {
+    s_lis2_status.emb_step = emb.is_step_det;
+    s_lis2_status.emb_tilt = emb.is_tilt;
+    s_lis2_status.emb_sigmot = emb.is_sigmot;
+  }
+  else
+  {
+    s_lis2_status.emb_step = 0U;
+    s_lis2_status.emb_tilt = 0U;
+    s_lis2_status.emb_sigmot = 0U;
+  }
+
+  if (ret_xl == 0)
+  {
+    for (uint32_t i = 0U; i < 3U; ++i)
+    {
+      s_lis2_status.accel_mg[i] = (float)xl.mg[i];
+      s_lis2_status.accel_raw[i] = xl.raw[i];
+    }
+    s_lis2_status.accel_valid = 1U;
+  }
+  else
+  {
+    s_lis2_status.accel_valid = 0U;
+  }
+
+  if (ret_temp == 0)
+  {
+    s_lis2_status.temp_c = (float)temp.heat.deg_c;
+    s_lis2_status.temp_valid = 1U;
+  }
+  else
+  {
+    s_lis2_status.temp_valid = 0U;
+  }
+
+  if ((ret_status != 0) || (ret_emb != 0) || (ret_xl != 0) || (ret_temp != 0))
+  {
+    sensor_lis2_note_error(now_ms);
+  }
+
+  s_lis2_status.sample_seq++;
 }
 
 static bool sensor_is_ui_mode(void)
@@ -1305,6 +1656,7 @@ void sensor_task_run(void)
   sensor_joy_refresh_status(joy, false);
   sensor_power_status_reset();
   sensor_power_set_enabled(0U);
+  sensor_lis2_reset_state();
   sensor_apply_settings(joy, true);
   s_settings_seq = settings_get_seq();
 
@@ -1312,11 +1664,13 @@ void sensor_task_run(void)
   {
     if (power_task_is_quiescing() != 0U)
     {
+      sensor_lis2_suspend();
       power_task_quiesce_ack(POWER_QUIESCE_ACK_SENSOR);
       osDelay(10U);
       continue;
     }
     power_task_quiesce_clear(POWER_QUIESCE_ACK_SENSOR);
+    sensor_lis2_resume();
 
     app_sensor_req_t req = 0U;
     uint32_t timeout = osWaitForever;
@@ -1348,6 +1702,13 @@ void sensor_task_run(void)
         timeout = kPowerStatsTickMs;
       }
     }
+    if ((s_lis2_enabled != 0U) && sensor_is_ui_mode())
+    {
+      if ((timeout == osWaitForever) || (timeout > kLis2PollMs))
+      {
+        timeout = kLis2PollMs;
+      }
+    }
     if ((timeout == osWaitForever) || (timeout > kBattCutoffPollMs))
     {
       timeout = kBattCutoffPollMs;
@@ -1358,6 +1719,7 @@ void sensor_task_run(void)
     if (status == osOK)
     {
       sensor_joy_handle_req(req, joy, now_ms);
+      sensor_lis2_handle_req(req);
     }
 
     if ((s_status.stage != SENSOR_JOY_STAGE_IDLE) &&
@@ -1376,6 +1738,7 @@ void sensor_task_run(void)
       sensor_joy_menu_poll(joy);
     }
 
+    sensor_lis2_poll(now_ms);
     sensor_power_update(now_ms);
     sensor_power_lvco_update(now_ms, 0U);
   }
@@ -1411,4 +1774,14 @@ void sensor_power_get_status(sensor_power_status_t *out)
   }
 
   *out = s_power_status;
+}
+
+void sensor_lis2_get_status(sensor_lis2_status_t *out)
+{
+  if (out == NULL)
+  {
+    return;
+  }
+
+  *out = s_lis2_status;
 }

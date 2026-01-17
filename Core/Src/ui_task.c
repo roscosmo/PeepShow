@@ -89,6 +89,15 @@ static void ui_update_sensor_mode(const ui_page_t *page)
     req |= APP_SENSOR_REQ_POWER_STATS_OFF;
   }
 
+  if ((flags & UI_PAGE_FLAG_LIS2) != 0U)
+  {
+    req |= APP_SENSOR_REQ_LIS2_ON;
+  }
+  else
+  {
+    req |= APP_SENSOR_REQ_LIS2_OFF;
+  }
+
   if (req != 0U)
   {
     ui_actions_send_sensor_req(req);

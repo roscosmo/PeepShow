@@ -75,6 +75,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/page_sleep.c
     Core/Src/page_rtc_set.c
     Core/Src/page_storage.c
+    Core/Src/page_lis2.c
+    Core/Src/page_lis2_steps.c
     Core/Src/sleep_face.c
     Core/Src/settings.c
     Core/Src/game_task.c
