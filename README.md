@@ -16,7 +16,7 @@ This project is not experimental. Avoid speculative refactors.
   - Predictable scheduling and bounded latency
 - **STOP2-first power design**
   - STOP2 is the primary power saver
-  - Wake on IRQ/input, do work, return to STOP2
+  - Wake on IRQ; user wake requires L+R chord; do work, return to STOP2
 - **Maintainability**
   - Clear task responsibilities
   - Clear message passing and state transitions
@@ -32,7 +32,7 @@ This project is not experimental. Avoid speculative refactors.
 
 **User-visible pattern:**
 
-Wake → ~15s no interaction → Sleep (STOP2) → Wake on input/IRQ → repeat
+Wake → ~15s no interaction → Sleep (STOP2) → Wake on L+R chord or IRQ → repeat
 
 **Implications:**
 - Awake window is long → PLL/HSI startup cost is irrelevant
@@ -629,6 +629,7 @@ Wake:
 - RTC tick wakes the system
 - power requests a minimal redraw
 - return to STOP2 immediately after display idle
+- Exit sleep face only on L+R chord; wake presses are suppressed for UI/game
 
 No FreeRTOS software timer is used for the 1 Hz sleep face in STOP2.
 
@@ -848,7 +849,7 @@ Goal: STOP2 becomes reliable without breaking peripherals.
   - request quiesce
   - wait for owner idles/acks
 - [x] Initial strict rule: do not enter STOP2 while display busy
-- [x] Wake on button/UART
+- [x] Wake on EXTI/LPUART; sleepface exit requires L+R chord
 - [x] Verify post-wake peripheral reinit order
 
 Acceptance:
@@ -861,7 +862,8 @@ Implementation notes (Phase 8 STOP2):
 - Inactivity timer (default 15s) posts `APP_SYS_EVENT_INACTIVITY`; `tskPower` requests sleep and restarts on any input.
 - Quiesce barrier uses `egPower` with `POWER_QUIESCE_REQ_FLAG` plus per-task ACKs (display/storage/audio/sensor); tasks pause work while quiescing.
 - STOP2 is blocked while audio is active and while storage is busy; display busy must clear before entry.
-- Wake sources: EXTI buttons + LPUART RXNE (LPUART only).
+- Wake sources: EXTI buttons + LPUART RXNE; RTC alarm used for sleepface ticks.
+- Sleepface input gate: only L+R exits sleep; wake presses do not reach UI/game.
 - Post-wake reinit calls `SystemClock_Config()` then `PeriphCommonClock_Config()`; LPUART wake config is re-armed.
 - Sleep Options menu page controls sleep enable, game-mode allowance, and timeout (15s-5m), persisted in settings.
 
@@ -870,14 +872,16 @@ Implementation notes (Phase 8 STOP2):
 ## Phase 9 — Periodic Sleep Clock Face
 Goal: minimal wake + minimal redraw + return to STOP2.
 
-- [ ] RTC alarm wake triggers sys event to power
-- [ ] In sleepface mode: power requests minimal invalidate
-- [ ] Return to STOP2 immediately after display idle
+- [x] RTC alarm wake triggers sleepface tick
+- [x] In sleepface mode: power requests minimal invalidate
+- [x] Return to STOP2 immediately after display idle
+- [x] Exit sleepface only on L+R chord; wake press suppressed
 
 Acceptance:
 - Periodic wakeup
 - No extra wakeups
 - Minimal power impact
+- No stray input actions on wake
 
 ---
 
