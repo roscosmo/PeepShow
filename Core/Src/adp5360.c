@@ -69,25 +69,25 @@ static uint8_t _encode_vadpichg_mv(uint16_t mv, uint8_t *ok)
     // We accept 4400..4900 in 100 mV steps.
     *ok = 1;
     switch (mv) {
-        case 4400: return 0b010;
-        case 4500: return 0b011;
-        case 4600: return 0b100;
-        case 4700: return 0b101;
-        case 4800: return 0b110;
-        case 4900: return 0b111;
+        case 4400: return 0x2u;
+        case 4500: return 0x3u;
+        case 4600: return 0x4u;
+        case 4700: return 0x5u;
+        case 4800: return 0x6u;
+        case 4900: return 0x7u;
         default: *ok = 0; return 0;
     }
 }
 
 static uint16_t _decode_vadpichg_mv(uint8_t code)
 {
-    switch (code & 0b111) {
-        case 0b010: return 4400;
-        case 0b011: return 4500;
-        case 0b100: return 4600;
-        case 0b101: return 4700;
-        case 0b110: return 4800;
-        case 0b111: return 4900;
+    switch (code & 0x7u) {
+        case 0x2u: return 4400;
+        case 0x3u: return 4500;
+        case 0x4u: return 4600;
+        case 0x5u: return 4700;
+        case 0x6u: return 4800;
+        case 0x7u: return 4900;
         default:    return 0;  // 000/001 are not listed in DS table
     }
 }
@@ -96,29 +96,29 @@ static uint8_t _encode_ilim_ma(uint16_t ma, uint8_t *ok)
 {
     *ok = 1;
     switch (ma) {
-        case  50: return 0b000;
-        case 100: return 0b001;
-        case 150: return 0b010;
-        case 200: return 0b011;
-        case 250: return 0b100;
-        case 300: return 0b101;
-        case 400: return 0b110;
-        case 500: return 0b111;
+        case  50: return 0x0u;
+        case 100: return 0x1u;
+        case 150: return 0x2u;
+        case 200: return 0x3u;
+        case 250: return 0x4u;
+        case 300: return 0x5u;
+        case 400: return 0x6u;
+        case 500: return 0x7u;
         default: *ok = 0; return 0;
     }
 }
 
 static uint16_t _decode_ilim_ma(uint8_t code)
 {
-    switch (code & 0b111) {
-        case 0b000: return  50;
-        case 0b001: return 100;
-        case 0b010: return 150;
-        case 0b011: return 200;
-        case 0b100: return 250;
-        case 0b101: return 300;
-        case 0b110: return 400;
-        case 0b111: return 500;
+    switch (code & 0x7u) {
+        case 0x0u: return  50;
+        case 0x1u: return 100;
+        case 0x2u: return 150;
+        case 0x3u: return 200;
+        case 0x4u: return 250;
+        case 0x5u: return 300;
+        case 0x6u: return 400;
+        case 0x7u: return 500;
         default:    return 0;
     }
 }
@@ -238,20 +238,20 @@ HAL_StatusTypeDef ADP5360_set_chg_term(uint16_t vtrm_mV,
 // --- IEND encode/decode ---
 static uint16_t _decode_iend_ma(uint8_t code3) {
     switch (code3 & 0x07u) {
-        case 0b001: return 5;
-        case 0b010: return 7;
-        case 0b011: return 12;
-        case 0b100: return 17;
-        case 0b101: return 22;
-        case 0b110: return 27;
-        case 0b111: return 32;
+        case 0x1u: return 5;
+        case 0x2u: return 7;
+        case 0x3u: return 12;
+        case 0x4u: return 17;
+        case 0x5u: return 22;
+        case 0x6u: return 27;
+        case 0x7u: return 32;
         default:    return 0; // 000 reserved
     }
 }
 static uint8_t _encode_iend_code(uint16_t ma) {
     // map nearest
     const uint16_t vals[7] = {5,7,12,17,22,27,32};
-    const uint8_t codes[7] = {0b001,0b010,0b011,0b100,0b101,0b110,0b111};
+    const uint8_t codes[7] = {0x1u,0x2u,0x3u,0x4u,0x5u,0x6u,0x7u};
     uint8_t best = codes[0]; uint16_t best_err = 0xFFFF;
     for (int i=0;i<7;i++){
         uint16_t err = (ma>vals[i])?(ma-vals[i]):(vals[i]-ma);
@@ -305,19 +305,19 @@ HAL_StatusTypeDef ADP5360_set_chg_current(uint16_t iend_mA,
 // use deci-mA for IEND exactness
 static uint16_t _decode_iend_dmA(uint8_t code3) {
     switch (code3 & 0x07u) {
-        case 0b001: return  50;  // 5.0 mA
-        case 0b010: return  75;  // 7.5 mA
-        case 0b011: return 125;  // 12.5 mA
-        case 0b100: return 175;  // 17.5 mA
-        case 0b101: return 225;  // 22.5 mA
-        case 0b110: return 275;  // 27.5 mA
-        case 0b111: return 325;  // 32.5 mA
+        case 0x1u: return  50;  // 5.0 mA
+        case 0x2u: return  75;  // 7.5 mA
+        case 0x3u: return 125;  // 12.5 mA
+        case 0x4u: return 175;  // 17.5 mA
+        case 0x5u: return 225;  // 22.5 mA
+        case 0x6u: return 275;  // 27.5 mA
+        case 0x7u: return 325;  // 32.5 mA
         default:    return   0;  // 000 reserved
     }
 }
 static uint8_t _encode_iend_code_dmA(uint16_t dmA) {
     const uint16_t vals[7] = { 50, 75,125,175,225,275,325 };
-    const uint8_t  codes[7]= {0b001,0b010,0b011,0b100,0b101,0b110,0b111};
+    const uint8_t  codes[7]= {0x1u,0x2u,0x3u,0x4u,0x5u,0x6u,0x7u};
     uint8_t best = codes[0]; uint16_t best_err = 0xFFFF;
     for (int i=0;i<7;i++){
         uint16_t err = (dmA>vals[i])?(dmA-vals[i]):(vals[i]-dmA);
@@ -331,7 +331,12 @@ static uint16_t _decode_ichg_dmA(uint8_t code5) {
 }
 static uint8_t _encode_ichg_code_dmA(uint16_t dmA) {
     uint16_t ma = (dmA + 5) / 10;           // round to nearest mA
-    if (ma < 10) ma = 10; if (ma > 320) ma = 320;
+    if (ma < 10) {
+        ma = 10;
+    }
+    if (ma > 320) {
+        ma = 320;
+    }
     return (uint8_t)((ma - 10)/10);
 }
 HAL_StatusTypeDef ADP5360_get_chg_current_dmA(uint16_t *iend_dmA,
@@ -364,35 +369,35 @@ HAL_StatusTypeDef ADP5360_set_chg_current_dmA(uint16_t iend_dmA,
 // ---- encode/decode helpers (0x05) ----
 static int _vrch_code_from_mv(uint16_t mv) {
     switch (mv) {
-        case 120: return 0b01;
-        case 180: return 0b10;
-        case 240: return 0b11;
+        case 120: return 0x1;
+        case 180: return 0x2;
+        case 240: return 0x3;
         default:  return -1; // invalid per table
     }
 }
 static uint16_t _vrch_mv_from_code(uint8_t code) {
     switch (code & 0x03u) {
-        case 0b01: return 120;
-        case 0b10: return 180;
-        case 0b11: return 240;
+        case 0x1u: return 120;
+        case 0x2u: return 180;
+        case 0x3u: return 240;
         default:   return 0;   // 00 not defined in table
     }
 }
 static int _vtrk_code_from_mv(uint16_t mv) {
     switch (mv) {
-        case 2000: return 0b00;
-        case 2500: return 0b01;
-        case 2600: return 0b10;
-        case 2900: return 0b11;
+        case 2000: return 0x0;
+        case 2500: return 0x1;
+        case 2600: return 0x2;
+        case 2900: return 0x3;
         default:   return -1;
     }
 }
 static uint16_t _vtrk_mv_from_code(uint8_t code) {
     switch (code & 0x03u) {
-        case 0b00: return 2000;
-        case 0b01: return 2500;
-        case 0b10: return 2600;
-        case 0b11: return 2900;
+        case 0x0u: return 2000;
+        case 0x1u: return 2500;
+        case 0x2u: return 2600;
+        case 0x3u: return 2900;
         default:   return 0;
     }
 }
@@ -460,11 +465,22 @@ HAL_StatusTypeDef ADP5360_set_voltage_thresholds(
 static void _tmr_minutes_from_code(uint8_t code, uint16_t *tmx, uint16_t *tcc)
 {
     switch (code & 0x03u) {
-        case 0: if(tmx) *tmx=15;  if(tcc) *tcc=150; break;
-        case 1: if(tmx) *tmx=30;  if(tcc) *tcc=300; break;
-        case 2: if(tmx) *tmx=45;  if(tcc) *tcc=450; break;
+        case 0:
+            if (tmx) *tmx = 15;
+            if (tcc) *tcc = 150;
+            break;
+        case 1:
+            if (tmx) *tmx = 30;
+            if (tcc) *tcc = 300;
+            break;
+        case 2:
+            if (tmx) *tmx = 45;
+            if (tcc) *tcc = 450;
+            break;
         default: // 3
-            if(tmx) *tmx=60;  if(tcc) *tcc=600; break;
+            if (tmx) *tmx = 60;
+            if (tcc) *tcc = 600;
+            break;
     }
 }
 
@@ -645,10 +661,10 @@ static ADP5360_ithr_t _ithr_from_code(uint8_t code2)
 static uint8_t _ithr_to_code(ADP5360_ithr_t ithr)
 {
     switch (ithr) {
-        case ADP5360_ITHR_60UA: return 0b00;
-        case ADP5360_ITHR_12UA: return 0b01;
-        case ADP5360_ITHR_6UA:  return 0b10;  // choose 10 for 6 µA
-        default:                return 0b10;
+        case ADP5360_ITHR_60UA: return 0x0u;
+        case ADP5360_ITHR_12UA: return 0x1u;
+        case ADP5360_ITHR_6UA:  return 0x2u;  // choose 10 for 6 µA
+        default:                return 0x2u;
     }
 }
 
@@ -884,13 +900,13 @@ static uint8_t _dgt_dis_code_from_ms(float ms) {
 static uint16_t _dgt_dis_ms_from_code(uint8_t code3) {
     // 000 not listed -> return 0
     switch (code3 & 0x07u) {
-        case 0b001: return 1;   // 0.5 ms -> we’ll return integer 1 for display granularity
-        case 0b010: return 1;   // 1 ms
-        case 0b011: return 5;
-        case 0b100: return 10;
-        case 0b101: return 20;
-        case 0b110: return 50;
-        case 0b111: return 100;
+        case 0x1u: return 1;   // 0.5 ms -> we’ll return integer 1 for display granularity
+        case 0x2u: return 1;   // 1 ms
+        case 0x3u: return 5;
+        case 0x4u: return 10;
+        case 0x5u: return 20;
+        case 0x6u: return 50;
+        case 0x7u: return 100;
         default:    return 0;   // 000 (undefined)
     }
 }
@@ -1577,9 +1593,9 @@ HAL_StatusTypeDef ADP5360_get_supervisory(ADP5360_supervisory_t *cfg)
     cfg->reset_time_ms  = (v & ADP5360_RESET_TIME_MASK) ? 1600u : 200u;
 
     switch ((v & ADP5360_WD_TIME_MASK) >> ADP5360_WD_TIME_SHIFT) {
-        case 0b00: cfg->wd_time_s = 12.5f; break;
-        case 0b01: cfg->wd_time_s = 25.6f; break;
-        case 0b10: cfg->wd_time_s = 50.0f; break;
+        case 0x0u: cfg->wd_time_s = 12.5f; break;
+        case 0x1u: cfg->wd_time_s = 25.6f; break;
+        case 0x2u: cfg->wd_time_s = 50.0f; break;
         default:   cfg->wd_time_s = 100.0f; break;
     }
 
@@ -1606,10 +1622,10 @@ HAL_StatusTypeDef ADP5360_set_supervisory(const ADP5360_supervisory_t *cfg)
     // choose closest watchdog period
     float t = cfg->wd_time_s;
     uint8_t wd_code = 0; // default 12.5s
-    if (t >= 88.0f) wd_code = 0b11;
-    else if (t >= 37.8f) wd_code = 0b10;
-    else if (t >= 19.1f) wd_code = 0b01;
-    // else 0b00
+    if (t >= 88.0f) wd_code = 0x3u;
+    else if (t >= 37.8f) wd_code = 0x2u;
+    else if (t >= 19.1f) wd_code = 0x1u;
+    // else 0x0u
     v |= (uint8_t)(wd_code << ADP5360_WD_TIME_SHIFT);
 
     if (cfg->wd_enable)      v |= ADP5360_EN_WD_MASK;
@@ -1831,7 +1847,19 @@ HAL_StatusTypeDef ADP5360_power_init(const ADP5360_init_t *c)
                                        c->vth.vtrk_dead_mV,
                                        c->vth.vweak_mV));
     RET(ADP5360_set_chg_timers(c->tmr.en_tend, c->tmr.en_chg_timer, c->tmr.period_sel));
-    RET(ADP5360_set_chg_function(&c->func));
+    {
+        // ADP5360_init_t embeds a "func" block; convert to the typed API struct.
+        const ADP5360_func_t func = {
+            .en_jeita        = c->func.en_jeita,
+            .ilim_jeita_cool = c->func.ilim_jeita_cool_10pct,
+            .off_isofet      = c->func.off_isofet,
+            .en_ldo          = c->func.en_ldo,
+            .en_eoc          = c->func.en_eoc,
+            .en_adpichg      = c->func.en_adpichg,
+            .en_chg          = c->func.en_chg,
+        };
+        RET(ADP5360_set_chg_function(&func));
+    }
 
     // --- THERMISTOR (NTC) ---
     RET(ADP5360_set_ntc_ctrl(_map_ithr_uA(c->thr_ctrl.ithr_uA), c->thr_ctrl.en_thr));
@@ -1839,7 +1867,17 @@ HAL_StatusTypeDef ADP5360_power_init(const ADP5360_init_t *c)
                                    c->thr_limits.t10_mV, c->thr_limits.t0_mV));
 
     // --- BATTERY PROTECTION ---
-    RET(ADP5360_set_batpro_ctrl(&c->batpro_ctrl));
+    {
+        // ADP5360_init_t embeds a "batpro_ctrl" block; convert to the typed API struct.
+        const ADP5360_batpro_ctrl_t batpro = {
+            .en_batpro     = c->batpro_ctrl.en_batpro,
+            .en_chglb      = c->batpro_ctrl.en_chglb,
+            .oc_chg_hiccup = c->batpro_ctrl.chg_hiccup,
+            .oc_dis_hiccup = c->batpro_ctrl.dis_hiccup,
+            .isofet_ovchg  = c->batpro_ctrl.isofet_ovchg,
+        };
+        RET(ADP5360_set_batpro_ctrl(&batpro));
+    }
     RET(ADP5360_set_uv_setting(c->uv_prot.vth_mV, c->uv_prot.hys_pct, c->uv_prot.dgt_ms));
     RET(ADP5360_set_dis_oc(c->dis_oc.oc_mA, c->dis_oc.dgt_ms));
     RET(ADP5360_set_ov_setting(c->ov_prot.vth_mV, c->ov_prot.hys_pct, c->ov_prot.dgt_ms));

@@ -331,14 +331,14 @@ HAL_StatusTypeDef ADP5360_set_chg_function(const ADP5360_func_t *f);
 
 // 3-bit charger state (CHARGER_STATUS[2:0])
 typedef enum {
-    ADP5360_CHG_OFF          = 0b000,
-    ADP5360_CHG_TRICKLE      = 0b001,
-    ADP5360_CHG_FAST_CC      = 0b010,  // constant-current mode
-    ADP5360_CHG_FAST_CV      = 0b011,  // constant-voltage mode
-    ADP5360_CHG_COMPLETE     = 0b100,
-    ADP5360_CHG_LDO_MODE     = 0b101,
-    ADP5360_CHG_TIMER_EXPIRED= 0b110,  // trickle or fast charge timer expired
-    ADP5360_CHG_BATT_DETECT  = 0b111
+    ADP5360_CHG_OFF          = 0x0,
+    ADP5360_CHG_TRICKLE      = 0x1,
+    ADP5360_CHG_FAST_CC      = 0x2,  // constant-current mode
+    ADP5360_CHG_FAST_CV      = 0x3,  // constant-voltage mode
+    ADP5360_CHG_COMPLETE     = 0x4,
+    ADP5360_CHG_LDO_MODE     = 0x5,
+    ADP5360_CHG_TIMER_EXPIRED= 0x6,  // trickle or fast charge timer expired
+    ADP5360_CHG_BATT_DETECT  = 0x7
 } ADP5360_chg_state_t;
 
 typedef struct {
@@ -366,21 +366,21 @@ bool ADP5360_is_charging(void);
 
 // THR pin / NTC state
 typedef enum {
-    ADP5360_THR_OFF   = 0b000,
-    ADP5360_THR_COLD  = 0b001,
-    ADP5360_THR_COOL  = 0b010,
-    ADP5360_THR_WARM  = 0b011,
-    ADP5360_THR_HOT   = 0b100,
-    ADP5360_THR_OK    = 0b111,  // in-range
+    ADP5360_THR_OFF   = 0x0,
+    ADP5360_THR_COLD  = 0x1,
+    ADP5360_THR_COOL  = 0x2,
+    ADP5360_THR_WARM  = 0x3,
+    ADP5360_THR_HOT   = 0x4,
+    ADP5360_THR_OK    = 0x7,  // in-range
 } ADP5360_thr_status_t;
 
 // Battery status when charging (per table)
 typedef enum {
-    ADP5360_BATSTAT_NORMAL   = 0b000, // normal (not charging / outside special cases)
-    ADP5360_BATSTAT_NO_BATT  = 0b001, // no battery detected
-    ADP5360_BATSTAT_LE_VTRK  = 0b010, // Vbat ≤ VTRK_DEAD (when in charge)
-    ADP5360_BATSTAT_BETWEEN  = 0b011, // VTRK_DEAD < Vbat < VWEAK (when in charge)
-    ADP5360_BATSTAT_GE_VWEAK = 0b100, // Vbat ≥ VWEAK (when in charge)
+    ADP5360_BATSTAT_NORMAL   = 0x0, // normal (not charging / outside special cases)
+    ADP5360_BATSTAT_NO_BATT  = 0x1, // no battery detected
+    ADP5360_BATSTAT_LE_VTRK  = 0x2, // Vbat ≤ VTRK_DEAD (when in charge)
+    ADP5360_BATSTAT_BETWEEN  = 0x3, // VTRK_DEAD < Vbat < VWEAK (when in charge)
+    ADP5360_BATSTAT_GE_VWEAK = 0x4, // Vbat ≥ VWEAK (when in charge)
     // other codes not listed → treat as unknown
 } ADP5360_bat_chg_status_t;
 
@@ -983,7 +983,7 @@ static const ADP5360_init_t ADP_cfg = {
     // CHARGER
     .vbus_ilim = { .vadpichg_mV=4600, .vsys_5V=0, .ilim_mA=100 },
     .term      = { .vtrm_mV=4160, .itrk_dead_mA=5 },
-    .curr      = { .iend_mA=17.5, .ichg_mA=50 },
+    .curr      = { .iend_mA=10.5, .ichg_mA=25 },
     .vth       = { .dis_rch=0, .vrch_mV=120, .vtrk_dead_mV=2500, .vweak_mV=3000 },
     .tmr       = { .en_tend=0, .en_chg_timer=1, .period_sel=3 },  // 60/600 min
     .func      = { .en_jeita=0, .ilim_jeita_cool_10pct=0, .off_isofet=0,

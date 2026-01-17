@@ -747,6 +747,7 @@ Goal: stable I2C behavior, no UI stalls.
 - [x] Add request model via qSensorReq
 - [x] Publish latest samples via snapshot (seq/version)
 - [x] Optional: joystick mapping path integrated
+- [ ] Low battery power down policy
 
 Acceptance:
 - No I2C contention
