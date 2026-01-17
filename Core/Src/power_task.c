@@ -28,6 +28,7 @@ static const uint32_t kFlashLatencyCruise = FLASH_LATENCY_0;
 static const uint32_t kFlashLatencyMid = FLASH_LATENCY_2;
 static const uint32_t kFlashLatencyTurbo = FLASH_LATENCY_4;
 static const uint32_t kSleepfaceHoldMs = 50U;
+static const uint32_t kSleepfaceInputHoldMs = 50U;
 static const uint32_t kSleepfaceLvcoIntervalS = 60U;
 static const uint32_t kSleepfaceIntervalDefaultS = 1U;
 
@@ -640,10 +641,9 @@ static void power_task_try_sleep(void)
     return;
   }
 
-  s_wake_ignore = 1U;
-  s_wake_ignore_until = osKernelGetTickCount() + 250U;
+  s_sleepface_hold_until = osKernelGetTickCount() + kSleepfaceInputHoldMs;
+  s_sleep_pending = 1U;
   power_task_quiesce_set(0U);
-  power_task_activity_ping();
 }
 
 void power_task_run(void)
