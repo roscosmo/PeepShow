@@ -69,6 +69,9 @@ static uint8_t s_monitor_enabled = 0U;
 static sensor_power_status_t s_power_status;
 static uint8_t s_power_stats_enabled = 0U;
 static uint32_t s_power_last_ms = 0U;
+static uint32_t s_lvco_last_ms = 0U;
+static uint8_t s_lvco_low_count = 0U;
+static uint8_t s_lvco_cut_latched = 0U;
 static uint32_t s_settings_seq = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
@@ -86,6 +89,9 @@ static const float kJoyCalDirMinMax = 12.0f;
 static const uint32_t kJoyMonitorTickMs = 100U;
 static const uint32_t kJoyCalTickMs = 10U;
 static const uint32_t kPowerStatsTickMs = 1000U;
+static const uint32_t kBattCutoffPollMs = 60000U;
+static const uint16_t kBattCutoffMv = 3500U;
+static const uint8_t kBattCutoffDebounce = 2U;
 
 static float s_menu_press_norm = 0.45f;
 static float s_menu_release_norm = 0.25f;
@@ -168,6 +174,9 @@ static void sensor_power_status_reset(void)
   (void)memset(&s_power_status, 0, sizeof(s_power_status));
   s_power_status.valid = 0U;
   s_power_last_ms = 0U;
+  s_lvco_last_ms = 0U;
+  s_lvco_low_count = 0U;
+  s_lvco_cut_latched = 0U;
 }
 
 static void sensor_power_set_enabled(uint8_t enable)
@@ -177,6 +186,77 @@ static void sensor_power_set_enabled(uint8_t enable)
   {
     s_power_last_ms = 0U;
     s_power_status.valid = 0U;
+  }
+}
+
+static void sensor_power_isofet_set(uint8_t on)
+{
+  ADP5360_func_t func = {0};
+  if (ADP5360_get_chg_function(&func) != HAL_OK)
+  {
+    return;
+  }
+
+  // off_isofet is active-high, so on=1 means off_isofet=0 (conducting).
+  uint8_t off_isofet = (on != 0U) ? 0U : 1U;
+  if (func.off_isofet == off_isofet)
+  {
+    return;
+  }
+
+  func.off_isofet = off_isofet;
+  (void)ADP5360_set_chg_function(&func);
+}
+
+static void sensor_power_lvco_update(uint32_t now_ms)
+{
+  if (s_lvco_cut_latched != 0U)
+  {
+    return;
+  }
+
+  if ((s_lvco_last_ms != 0U) && ((now_ms - s_lvco_last_ms) < kBattCutoffPollMs))
+  {
+    return;
+  }
+
+  s_lvco_last_ms = now_ms;
+
+  ADP5360_pgood_t pgood = {0};
+  if (ADP5360_get_pgood(&pgood, NULL) != HAL_OK)
+  {
+    s_lvco_low_count = 0U;
+    return;
+  }
+
+  if (pgood.vbus_ok != 0U)
+  {
+    s_lvco_low_count = 0U;
+    return;
+  }
+
+  uint16_t vbat_mV = 0U;
+  if (ADP5360_get_vbat(&vbat_mV, NULL) != HAL_OK)
+  {
+    s_lvco_low_count = 0U;
+    return;
+  }
+
+  if (vbat_mV <= kBattCutoffMv)
+  {
+    if (s_lvco_low_count < 0xFFU)
+    {
+      s_lvco_low_count++;
+    }
+    if (s_lvco_low_count >= kBattCutoffDebounce)
+    {
+      s_lvco_cut_latched = 1U;
+      sensor_power_isofet_set(0U);
+    }
+  }
+  else
+  {
+    s_lvco_low_count = 0U;
   }
 }
 
@@ -1264,6 +1344,10 @@ void sensor_task_run(void)
         timeout = kPowerStatsTickMs;
       }
     }
+    if ((timeout == osWaitForever) || (timeout > kBattCutoffPollMs))
+    {
+      timeout = kBattCutoffPollMs;
+    }
 
     osStatus_t status = osMessageQueueGet(qSensorReqHandle, &req, NULL, timeout);
     uint32_t now_ms = osKernelGetTickCount();
@@ -1289,6 +1373,7 @@ void sensor_task_run(void)
     }
 
     sensor_power_update(now_ms);
+    sensor_power_lvco_update(now_ms);
   }
 }
 

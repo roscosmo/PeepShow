@@ -741,13 +741,15 @@ Acceptance:
 ---
 
 ## Phase 4 – Sensors + I2C Serialization (awake-mode)
-Goal: stable I2C behavior, no UI stalls.
+Goal: stable I2C behavior, no UI stalls.Today we
 
 - [x] tskSensor becomes sole I2C owner
 - [x] Add request model via qSensorReq
 - [x] Publish latest samples via snapshot (seq/version)
 - [x] Optional: joystick mapping path integrated
 - [ ] Low battery power down policy
+
+
 
 Acceptance:
 - No I2C contention
