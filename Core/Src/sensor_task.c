@@ -87,6 +87,7 @@ static uint8_t s_lis2_addr_7b = 0U;
 static uint8_t s_lis2_suspended = 0U;
 static uint32_t s_lis2_error_last_ms = 0U;
 static uint8_t s_lis2_step_enabled = 0U;
+static uint8_t s_lis2_step_view = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
 static const uint32_t kJoyCalNeutralMs = 1500U;
@@ -365,6 +366,7 @@ static void sensor_lis2_reset_state(void)
   s_lis2_suspended = 0U;
   s_lis2_error_last_ms = 0U;
   s_lis2_step_enabled = 0U;
+  s_lis2_step_view = 0U;
   s_lis2_md = kLis2MdBase;
   s_lis2_ctx.write_reg = NULL;
   s_lis2_ctx.read_reg = NULL;
@@ -687,6 +689,19 @@ static void sensor_lis2_step_reset(void)
   s_lis2_status.step_valid = 1U;
 }
 
+static void sensor_lis2_step_view_set(uint8_t enable)
+{
+  uint8_t next = (enable != 0U) ? 1U : 0U;
+  if (next == s_lis2_step_view)
+  {
+    return;
+  }
+
+  s_lis2_step_view = next;
+  s_lis2_last_ms = 0U;
+  s_lis2_init_last_ms = 0U;
+}
+
 static void sensor_lis2_handle_req(app_sensor_req_t req)
 {
   if ((req & APP_SENSOR_REQ_LIS2_ON) != 0U)
@@ -708,6 +723,14 @@ static void sensor_lis2_handle_req(app_sensor_req_t req)
   if ((req & APP_SENSOR_REQ_LIS2_STEP_RESET) != 0U)
   {
     sensor_lis2_step_reset();
+  }
+  if ((req & APP_SENSOR_REQ_LIS2_STEP_VIEW_ON) != 0U)
+  {
+    sensor_lis2_step_view_set(1U);
+  }
+  if ((req & APP_SENSOR_REQ_LIS2_STEP_VIEW_OFF) != 0U)
+  {
+    sensor_lis2_step_view_set(0U);
   }
 }
 
@@ -759,7 +782,12 @@ static void sensor_lis2_resume(void)
 
 static void sensor_lis2_poll(uint32_t now_ms)
 {
-  if ((s_lis2_enabled == 0U) || (s_lis2_suspended != 0U) || !sensor_is_ui_mode())
+  if ((s_lis2_suspended != 0U) || !sensor_is_ui_mode())
+  {
+    return;
+  }
+
+  if ((s_lis2_enabled == 0U) && (s_lis2_step_view == 0U))
   {
     return;
   }
@@ -782,8 +810,8 @@ static void sensor_lis2_poll(uint32_t now_ms)
     if (s_lis2_step_enabled != 0U)
     {
       sensor_lis2_step_apply_config(now_ms);
-      sensor_lis2_apply_mode(now_ms);
     }
+    sensor_lis2_apply_mode(now_ms);
     return;
   }
 
@@ -794,49 +822,29 @@ static void sensor_lis2_poll(uint32_t now_ms)
 
   s_lis2_last_ms = now_ms;
 
-  lis2dux12_status_t status = {0};
-  lis2dux12_embedded_status_t emb = {0};
   lis2dux12_xl_data_t xl = {0};
-  lis2dux12_outt_data_t temp = {0};
 
-  int32_t ret_status = lis2dux12_status_get(&s_lis2_ctx, &status);
+  int32_t ret_status = 0;
   int32_t ret_emb = 0;
-  int32_t ret_xl = lis2dux12_xl_data_get(&s_lis2_ctx, &s_lis2_md, &xl);
-  int32_t ret_temp = lis2dux12_outt_data_get(&s_lis2_ctx, &temp);
+  int32_t ret_xl = 0;
+  int32_t ret_temp = 0;
   int32_t ret_steps = 0;
 
-  s_lis2_status.status_valid = (ret_status == 0) ? 1U : 0U;
-  if (ret_status == 0)
-  {
-    s_lis2_status.status_drdy = status.drdy;
-    s_lis2_status.status_boot = status.boot;
-    s_lis2_status.status_sw_reset = status.sw_reset;
-  }
-  else
-  {
-    s_lis2_status.status_drdy = 0U;
-    s_lis2_status.status_boot = 0U;
-    s_lis2_status.status_sw_reset = 0U;
-  }
+  s_lis2_status.status_valid = 0U;
+  s_lis2_status.status_drdy = 0U;
+  s_lis2_status.status_boot = 0U;
+  s_lis2_status.status_sw_reset = 0U;
 
-  if (s_lis2_step_enabled != 0U)
-  {
-    ret_emb = lis2dux12_embedded_status_get(&s_lis2_ctx, &emb);
-  }
+  s_lis2_status.emb_valid = 0U;
+  s_lis2_status.emb_step = 0U;
+  s_lis2_status.emb_tilt = 0U;
+  s_lis2_status.emb_sigmot = 0U;
 
-  s_lis2_status.emb_valid = (ret_emb == 0) ? 1U : 0U;
-  if ((ret_emb == 0) && (s_lis2_step_enabled != 0U))
+  s_lis2_status.temp_valid = 0U;
+
+  if (s_lis2_enabled != 0U)
   {
-    s_lis2_status.emb_step = emb.is_step_det;
-    s_lis2_status.emb_tilt = emb.is_tilt;
-    s_lis2_status.emb_sigmot = emb.is_sigmot;
-  }
-  else
-  {
-    s_lis2_status.emb_step = 0U;
-    s_lis2_status.emb_tilt = 0U;
-    s_lis2_status.emb_sigmot = 0U;
-    s_lis2_status.emb_valid = 0U;
+    ret_xl = lis2dux12_xl_data_get(&s_lis2_ctx, &s_lis2_md, &xl);
   }
 
   if (ret_xl == 0)
@@ -853,17 +861,7 @@ static void sensor_lis2_poll(uint32_t now_ms)
     s_lis2_status.accel_valid = 0U;
   }
 
-  if (ret_temp == 0)
-  {
-    s_lis2_status.temp_c = (float)temp.heat.deg_c;
-    s_lis2_status.temp_valid = 1U;
-  }
-  else
-  {
-    s_lis2_status.temp_valid = 0U;
-  }
-
-  if (s_lis2_step_enabled != 0U)
+  if ((s_lis2_step_enabled != 0U) && (s_lis2_step_view != 0U))
   {
     uint16_t steps = 0U;
     ret_steps = lis2dux12_stpcnt_steps_get(&s_lis2_ctx, &steps);
@@ -874,13 +872,11 @@ static void sensor_lis2_poll(uint32_t now_ms)
     }
     else
     {
-      s_lis2_status.step_count = 0U;
       s_lis2_status.step_valid = 0U;
     }
   }
   else
   {
-    s_lis2_status.step_count = 0U;
     s_lis2_status.step_valid = 0U;
   }
 
@@ -1946,7 +1942,7 @@ void sensor_task_run(void)
         timeout = kPowerStatsTickMs;
       }
     }
-    if ((s_lis2_enabled != 0U) && sensor_is_ui_mode())
+    if (((s_lis2_enabled != 0U) || (s_lis2_step_view != 0U)) && sensor_is_ui_mode())
     {
       if ((timeout == osWaitForever) || (timeout > kLis2PollMs))
       {

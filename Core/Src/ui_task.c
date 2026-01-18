@@ -98,6 +98,15 @@ static void ui_update_sensor_mode(const ui_page_t *page)
     req |= APP_SENSOR_REQ_LIS2_OFF;
   }
 
+  if ((flags & UI_PAGE_FLAG_LIS2_STEP) != 0U)
+  {
+    req |= APP_SENSOR_REQ_LIS2_STEP_VIEW_ON;
+  }
+  else
+  {
+    req |= APP_SENSOR_REQ_LIS2_STEP_VIEW_OFF;
+  }
+
   if (req != 0U)
   {
     ui_actions_send_sensor_req(req);

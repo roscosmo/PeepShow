@@ -29,6 +29,7 @@ typedef enum
 #define UI_PAGE_FLAG_JOY_MONITOR (1U << 1U)
 #define UI_PAGE_FLAG_POWER_STATS (1U << 2U)
 #define UI_PAGE_FLAG_LIS2        (1U << 3U)
+#define UI_PAGE_FLAG_LIS2_STEP   (1U << 4U)
 
 typedef uint32_t (*ui_page_event_fn)(ui_evt_t evt);
 

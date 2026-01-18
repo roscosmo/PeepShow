@@ -148,6 +148,8 @@ extern volatile uint32_t g_sys_event_count;
 #define APP_SENSOR_REQ_LIS2_STEP_ON         (1UL << 20U)
 #define APP_SENSOR_REQ_LIS2_STEP_OFF        (1UL << 21U)
 #define APP_SENSOR_REQ_LIS2_STEP_RESET      (1UL << 22U)
+#define APP_SENSOR_REQ_LIS2_STEP_VIEW_ON    (1UL << 23U)
+#define APP_SENSOR_REQ_LIS2_STEP_VIEW_OFF   (1UL << 24U)
 #define APP_AUDIO_CMD_TOGGLE_TONE      (1UL << 0U)
 #define APP_AUDIO_CMD_STOP             (1UL << 1U)
 #define APP_AUDIO_CMD_KEYCLICK         (1UL << 2U)

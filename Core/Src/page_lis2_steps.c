@@ -299,5 +299,5 @@ const ui_page_t PAGE_LIS2_STEPS =
   .render = page_lis2_steps_render,
   .exit = NULL,
   .tick_ms = 500U,
-  .flags = UI_PAGE_FLAG_LIS2
+  .flags = UI_PAGE_FLAG_LIS2_STEP
 };
