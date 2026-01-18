@@ -1474,6 +1474,11 @@ void storage_task_run(void)
     {
       power_task_quiesce_clear(POWER_QUIESCE_ACK_STORAGE);
     }
+    if (power_task_is_sleepface_active() != 0U)
+    {
+      osDelay(10U);
+      continue;
+    }
 
     app_storage_req_t req = 0U;
     uint32_t timeout = (s_stream.active != 0U) ? 5U : osWaitForever;

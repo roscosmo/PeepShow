@@ -1239,6 +1239,7 @@ void audio_task_run(void)
     {
       if (audio_is_active() == 0U)
       {
+        HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
         if (storage_stream_is_active() != 0U)
         {
           (void)storage_request_stream_close();

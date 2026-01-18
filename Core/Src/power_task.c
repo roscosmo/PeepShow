@@ -12,6 +12,7 @@
 
 extern UART_HandleTypeDef hlpuart1;
 extern RTC_HandleTypeDef hrtc;
+extern OSPI_HandleTypeDef hospi1;
 
 void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
@@ -52,6 +53,8 @@ static volatile uint32_t s_sleepface_interval_s = kSleepfaceIntervalDefaultS;
 static uint32_t s_sleepface_hold_until = 0U;
 static uint32_t s_lvco_accum_s = 0U;
 static power_rtc_datetime_t s_rtc_set_value = {0};
+static volatile uint8_t s_sleepface_minimal_clocks = 0U;
+static volatile uint8_t s_restore_full_clocks = 0U;
 
 static power_perf_mode_t power_task_sanitize_perf_mode(power_perf_mode_t mode)
 {
@@ -65,6 +68,8 @@ static power_perf_mode_t power_task_sanitize_perf_mode(power_perf_mode_t mode)
       return POWER_PERF_MODE_CRUISE;
   }
 }
+
+static uint8_t power_task_apply_perf_mode(power_perf_mode_t mode);
 
 static uint32_t power_task_sanitize_sleepface_interval(uint32_t interval_s)
 {
@@ -417,6 +422,89 @@ static uint8_t power_task_apply_pll1(uint32_t ahb_div, uint32_t flash_latency)
   return 1U;
 }
 
+static void power_task_restore_full_clocks(void);
+
+static void power_task_ospi_reinit(void)
+{
+  OSPIM_CfgTypeDef mgr = {0};
+  HAL_OSPI_DLYB_CfgTypeDef dlyb = {0};
+
+  (void)HAL_OSPI_DeInit(&hospi1);
+
+  hospi1.Instance = OCTOSPI1;
+  hospi1.Init.FifoThreshold = 1;
+  hospi1.Init.DualQuad = HAL_OSPI_DUALQUAD_DISABLE;
+  hospi1.Init.MemoryType = HAL_OSPI_MEMTYPE_MICRON;
+  hospi1.Init.DeviceSize = 24;
+  hospi1.Init.ChipSelectHighTime = 2;
+  hospi1.Init.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE;
+  hospi1.Init.ClockMode = HAL_OSPI_CLOCK_MODE_0;
+  hospi1.Init.WrapSize = HAL_OSPI_WRAP_NOT_SUPPORTED;
+  hospi1.Init.ClockPrescaler = 8;
+  hospi1.Init.SampleShifting = HAL_OSPI_SAMPLE_SHIFTING_NONE;
+  hospi1.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
+  hospi1.Init.ChipSelectBoundary = 0;
+  hospi1.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
+  hospi1.Init.MaxTran = 0;
+  hospi1.Init.Refresh = 0;
+  (void)HAL_OSPI_Init(&hospi1);
+
+  mgr.ClkPort = 1;
+  mgr.NCSPort = 2;
+  mgr.IOLowPort = HAL_OSPIM_IOPORT_1_LOW;
+  (void)HAL_OSPIM_Config(&hospi1, &mgr, HAL_OSPI_TIMEOUT_DEFAULT_VALUE);
+
+  dlyb.Units = 0;
+  dlyb.PhaseSel = 0;
+  (void)HAL_OSPI_DLYB_SetConfig(&hospi1, &dlyb);
+}
+
+static void power_task_restore_full_clocks(void)
+{
+  SystemClock_Config();
+  PeriphCommonClock_Config();
+  power_task_ospi_reinit();
+  s_perf_active = POWER_PERF_MODE_CRUISE;
+  if ((s_in_game != 0U) && (s_sleepface_active == 0U) && (s_rtc_alarm_pending == 0U))
+  {
+    (void)power_task_apply_perf_mode(s_game_perf_mode);
+  }
+  s_sleepface_minimal_clocks = 0U;
+}
+
+static void power_task_restore_sleepface_clocks(void)
+{
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE3) != HAL_OK)
+  {
+    return;
+  }
+
+  RCC_OscInitTypeDef osc = {0};
+  osc.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_MSIK | RCC_OSCILLATORTYPE_HSI;
+  osc.MSIState = RCC_MSI_ON;
+  osc.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
+  osc.MSIClockRange = RCC_MSIRANGE_1;
+  osc.MSIKState = RCC_MSIK_ON;
+  osc.MSIKClockRange = RCC_MSIKRANGE_4;
+  osc.HSIState = RCC_HSI_OFF;
+  osc.PLL.PLLState = RCC_PLL_NONE;
+  (void)HAL_RCC_OscConfig(&osc);
+
+  RCC_ClkInitTypeDef clk = {0};
+  clk.ClockType = RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
+                  RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2 | RCC_CLOCKTYPE_PCLK3;
+  clk.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
+  clk.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  clk.APB1CLKDivider = RCC_HCLK_DIV1;
+  clk.APB2CLKDivider = RCC_HCLK_DIV1;
+  clk.APB3CLKDivider = RCC_HCLK_DIV8;
+  (void)HAL_RCC_ClockConfig(&clk, kFlashLatencyCruise);
+
+  vPortSetupTimerInterrupt();
+  s_perf_active = POWER_PERF_MODE_CRUISE;
+  s_sleepface_minimal_clocks = 1U;
+}
+
 static uint8_t power_task_apply_perf_mode(power_perf_mode_t mode)
 {
   power_perf_mode_t target = power_task_sanitize_perf_mode(mode);
@@ -565,12 +653,13 @@ static void power_task_enter_stop2(void)
   HAL_SuspendTick();
   (void)HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
   HAL_ResumeTick();
-  SystemClock_Config();
-  PeriphCommonClock_Config();
-  s_perf_active = POWER_PERF_MODE_CRUISE;
-  if ((s_in_game != 0U) && (s_sleepface_active == 0U) && (s_rtc_alarm_pending == 0U))
+  if (s_sleepface_active != 0U)
   {
-    (void)power_task_apply_perf_mode(s_game_perf_mode);
+    power_task_restore_sleepface_clocks();
+  }
+  else
+  {
+    power_task_restore_full_clocks();
   }
   power_task_configure_lpuart_wakeup();
 }
@@ -662,6 +751,12 @@ void power_task_run(void)
 
   for (;;)
   {
+    if (s_restore_full_clocks != 0U)
+    {
+      s_restore_full_clocks = 0U;
+      power_task_restore_full_clocks();
+    }
+
     uint32_t timeout = (s_sleep_pending != 0U) ? 20U : osWaitForever;
     if ((s_rtc_alarm_pending != 0U) || (s_rtc_set_pending != 0U) || (s_sleepface_interval_dirty != 0U))
     {
@@ -763,25 +858,26 @@ void power_task_run(void)
       }
     }
 
-  if (s_rtc_alarm_pending != 0U)
-  {
-    s_rtc_alarm_pending = 0U;
-    if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
+    if (s_rtc_alarm_pending != 0U)
     {
-      power_task_sleepface_tick();
+      s_rtc_alarm_pending = 0U;
+      if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
+      {
+        power_task_sleepface_tick();
+      }
+      else
+      {
+        power_task_rtc_disable_alarm();
+      }
     }
-    else
-    {
-      power_task_rtc_disable_alarm();
-    }
-  }
 
-  power_task_try_sleep();
-}
+    power_task_try_sleep();
+  }
 }
 
 void power_task_activity_ping(void)
 {
+  uint8_t was_sleepface = s_sleepface_active;
   if (s_sleepface_active != 0U)
   {
     s_sleepface_active = 0U;
@@ -804,6 +900,11 @@ void power_task_activity_ping(void)
   if (power_task_quiesce_active() != 0U)
   {
     power_task_quiesce_set(0U);
+  }
+
+  if ((was_sleepface != 0U) && (s_sleepface_minimal_clocks != 0U))
+  {
+    s_restore_full_clocks = 1U;
   }
 }
 

@@ -88,6 +88,7 @@ static uint8_t s_lis2_suspended = 0U;
 static uint32_t s_lis2_error_last_ms = 0U;
 static uint8_t s_lis2_step_enabled = 0U;
 static uint8_t s_lis2_step_view = 0U;
+static uint8_t s_tmag_suspended = 0U;
 
 static const uint32_t kJoyCalSampleMs = 10U;
 static const uint32_t kJoyCalNeutralMs = 1500U;
@@ -736,12 +737,8 @@ static void sensor_lis2_handle_req(app_sensor_req_t req)
 
 static void sensor_lis2_suspend(void)
 {
-  if (s_lis2_step_enabled != 0U)
-  {
-    return;
-  }
-
-  if ((s_lis2_enabled == 0U) || (s_lis2_inited == 0U) || (s_lis2_suspended != 0U))
+  if (((s_lis2_enabled == 0U) && (s_lis2_step_enabled == 0U)) ||
+      (s_lis2_inited == 0U) || (s_lis2_suspended != 0U))
   {
     return;
   }
@@ -764,7 +761,7 @@ static void sensor_lis2_resume(void)
     return;
   }
 
-  if ((s_lis2_enabled == 0U) || (s_lis2_inited == 0U))
+  if ((s_lis2_inited == 0U) || ((s_lis2_enabled == 0U) && (s_lis2_step_enabled == 0U)))
   {
     s_lis2_suspended = 0U;
     return;
@@ -778,6 +775,90 @@ static void sensor_lis2_resume(void)
 
   s_lis2_suspended = 0U;
   s_lis2_last_ms = 0U;
+}
+
+static void sensor_tmag_suspend(void)
+{
+  if (s_tmag_suspended != 0U)
+  {
+    return;
+  }
+
+  if (TMAG5273_set_operating_mode(TMAG5273_MODE_LOW_POWER) == 0)
+  {
+    s_tmag_suspended = 1U;
+  }
+}
+
+static void sensor_tmag_resume(const TMAGJoy *joy)
+{
+  if (s_tmag_suspended == 0U)
+  {
+    return;
+  }
+
+  TMAG5273_mode_t mode = TMAG5273_MODE_CONTINUOUS;
+  uint8_t sleep_time = 0U;
+  TMAGJoy_IrqSource irq_source = TMAGJOY_IRQ_RESULT;
+  uint8_t int_pulse_10us = 1U;
+  float thr_x_mT = 0.0f;
+  float thr_y_mT = 0.0f;
+  if (joy != NULL)
+  {
+    mode = joy->cfg.mode;
+    sleep_time = joy->cfg.sleep_time_n;
+    irq_source = joy->cfg.irq_source;
+    int_pulse_10us = joy->cfg.int_pulse_10us;
+    thr_x_mT = joy->cfg.thr_x_mT;
+    thr_y_mT = joy->cfg.thr_y_mT;
+  }
+
+  int ok = 1;
+  if (TMAG5273_set_operating_mode(mode) != 0)
+  {
+    ok = 0;
+  }
+  if (TMAG5273_set_sleep_time_n(sleep_time) != 0)
+  {
+    ok = 0;
+  }
+  if (TMAG5273_set_magnetic_channels(TMAG5273_CH_XY) != 0)
+  {
+    ok = 0;
+  }
+  if (irq_source == TMAGJOY_IRQ_RESULT)
+  {
+    if (TMAG5273_config_int(true, false, int_pulse_10us,
+                            TMAG5273_INT_MODE_INT, false) != 0)
+    {
+      ok = 0;
+    }
+  }
+  else
+  {
+    if (TMAG5273_config_int(false, true, int_pulse_10us,
+                            TMAG5273_INT_MODE_INT, false) != 0)
+    {
+      ok = 0;
+    }
+    if (TMAG5273_set_x_threshold_mT(thr_x_mT) != 0)
+    {
+      ok = 0;
+    }
+    if (TMAG5273_set_y_threshold_mT(thr_y_mT) != 0)
+    {
+      ok = 0;
+    }
+  }
+  if (TMAG5273_get_device_status() == 0)
+  {
+    /* clears any latched INT */
+  }
+
+  if (ok != 0)
+  {
+    s_tmag_suspended = 0U;
+  }
 }
 
 static void sensor_lis2_poll(uint32_t now_ms)
@@ -1904,12 +1985,21 @@ void sensor_task_run(void)
   {
     if (power_task_is_quiescing() != 0U)
     {
+      sensor_tmag_suspend();
       sensor_lis2_suspend();
       power_task_quiesce_ack(POWER_QUIESCE_ACK_SENSOR);
       osDelay(10U);
       continue;
     }
     power_task_quiesce_clear(POWER_QUIESCE_ACK_SENSOR);
+    if (power_task_is_sleepface_active() != 0U)
+    {
+      sensor_tmag_suspend();
+      sensor_lis2_suspend();
+      osDelay(10U);
+      continue;
+    }
+    sensor_tmag_resume(joy);
     sensor_lis2_resume();
 
     app_sensor_req_t req = 0U;
