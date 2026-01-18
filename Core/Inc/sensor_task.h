@@ -54,6 +54,16 @@ typedef struct
   uint8_t valid;
 } sensor_power_status_t;
 
+typedef enum
+{
+  SENSOR_LIS2_ERR_SRC_NONE = 0U,
+  SENSOR_LIS2_ERR_SRC_STATUS = (1U << 0U),
+  SENSOR_LIS2_ERR_SRC_EMB = (1U << 1U),
+  SENSOR_LIS2_ERR_SRC_XL = (1U << 2U),
+  SENSOR_LIS2_ERR_SRC_TEMP = (1U << 3U),
+  SENSOR_LIS2_ERR_SRC_STEP = (1U << 4U)
+} sensor_lis2_err_src_t;
+
 typedef struct
 {
   float accel_mg[3];
@@ -62,6 +72,7 @@ typedef struct
   uint16_t step_count;
   uint32_t sample_seq;
   uint32_t error_count;
+  uint8_t err_src;
   uint8_t device_id;
   uint8_t i2c_addr_7b;
   uint8_t odr;
@@ -80,6 +91,7 @@ typedef struct
   uint8_t id_valid;
   uint8_t init_ok;
   uint8_t step_valid;
+  uint8_t step_enabled;
 } sensor_lis2_status_t;
 
 void sensor_task_run(void);

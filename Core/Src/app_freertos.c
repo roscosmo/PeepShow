@@ -25,6 +25,7 @@
 #include "debug_uart.h"
 #include "display_task.h"
 #include "ui_task.h"
+#include "ui_router.h"
 #include "game_task.h"
 #include "sensor_task.h"
 #include "audio_task.h"
@@ -557,6 +558,21 @@ static void app_input_process_event(const app_input_event_t *evt)
     if ((s_sleep_wake_l != 0U) && (s_sleep_wake_r != 0U))
     {
       power_task_activity_ping();
+      uint32_t mode_flags = 0U;
+      if (egModeHandle != NULL)
+      {
+        uint32_t flags = osEventFlagsGet(egModeHandle);
+        if ((int32_t)flags >= 0)
+        {
+          mode_flags = flags;
+        }
+      }
+      if ((mode_flags & APP_MODE_GAME) == 0U)
+      {
+        ui_router_render();
+        app_display_cmd_t cmd = APP_DISPLAY_CMD_INVALIDATE;
+        (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
+      }
       return;
     }
 

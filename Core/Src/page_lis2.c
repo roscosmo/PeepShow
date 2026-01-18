@@ -65,6 +65,49 @@ static const char *lis2_bw_label(uint8_t bw)
   }
 }
 
+static const char *lis2_err_label(uint8_t err_src, char *buf, size_t len)
+{
+  if ((buf == NULL) || (len < 3U))
+  {
+    return "";
+  }
+
+  if (err_src == 0U)
+  {
+    (void)snprintf(buf, len, "--");
+    return buf;
+  }
+
+  uint32_t pos = 0U;
+  if ((err_src & SENSOR_LIS2_ERR_SRC_STATUS) != 0U)
+  {
+    buf[pos++] = 'S';
+  }
+  if ((err_src & SENSOR_LIS2_ERR_SRC_EMB) != 0U)
+  {
+    buf[pos++] = 'E';
+  }
+  if ((err_src & SENSOR_LIS2_ERR_SRC_XL) != 0U)
+  {
+    buf[pos++] = 'X';
+  }
+  if ((err_src & SENSOR_LIS2_ERR_SRC_TEMP) != 0U)
+  {
+    buf[pos++] = 'T';
+  }
+  if ((err_src & SENSOR_LIS2_ERR_SRC_STEP) != 0U)
+  {
+    buf[pos++] = 'P';
+  }
+
+  if (pos >= len)
+  {
+    pos = len - 1U;
+  }
+  buf[pos] = '\0';
+  return buf;
+}
+
 static void ui_draw_text_clipped(uint16_t x, uint16_t y, const char *text)
 {
   if (text == NULL)
@@ -120,6 +163,7 @@ static uint32_t page_lis2_imu_event(ui_evt_t evt)
     if ((s_has_last == 0U) ||
         (status.sample_seq != s_last.sample_seq) ||
         (status.error_count != s_last.error_count) ||
+        (status.err_src != s_last.err_src) ||
         (status.init_ok != s_last.init_ok) ||
         (status.id_valid != s_last.id_valid))
     {
@@ -147,6 +191,7 @@ static void page_lis2_imu_render(void)
   char mgy[8];
   char mgz[8];
   char temp_buf[12];
+  char err_buf[8];
 
   if (status.id_valid != 0U)
   {
@@ -313,7 +358,9 @@ static void page_lis2_imu_render(void)
   ui_draw_text_clipped(0U, y, line);
   y = (uint16_t)(y + step);
 
-  (void)snprintf(line, sizeof(line), "ERR %lu", (unsigned long)status.error_count);
+  const char *err_label = lis2_err_label(status.err_src, err_buf, sizeof(err_buf));
+  (void)snprintf(line, sizeof(line), "ERR %lu %s",
+                 (unsigned long)status.error_count, err_label);
   ui_draw_text_clipped(0U, y, line);
 }
 
