@@ -763,21 +763,21 @@ void power_task_run(void)
       }
     }
 
-    if (s_rtc_alarm_pending != 0U)
+  if (s_rtc_alarm_pending != 0U)
+  {
+    s_rtc_alarm_pending = 0U;
+    if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
     {
-      s_rtc_alarm_pending = 0U;
-      if ((s_sleepface_active != 0U) && (s_sleep_enabled != 0U))
-      {
-        power_task_sleepface_tick();
-      }
-      else
-      {
-        power_task_rtc_disable_alarm();
-      }
+      power_task_sleepface_tick();
     }
-
-    power_task_try_sleep();
+    else
+    {
+      power_task_rtc_disable_alarm();
+    }
   }
+
+  power_task_try_sleep();
+}
 }
 
 void power_task_activity_ping(void)

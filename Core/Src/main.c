@@ -139,6 +139,10 @@ int main(void)
   MX_ICACHE_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Ensure debugger does not hold STOP/STANDBY active. */
+  HAL_DBGMCU_DisableDBGStopMode();
+  HAL_DBGMCU_DisableDBGStandbyMode();
+
   // Enable SRAM4 clock for LPDMA access to display TX buffer.
   __HAL_RCC_SRAM4_CLK_ENABLE();
 
