@@ -24,7 +24,8 @@ typedef enum
   SETTINGS_KEY_SLEEP_ENABLED = 7,
   SETTINGS_KEY_SLEEP_ALLOW_GAME = 8,
   SETTINGS_KEY_SLEEP_TIMEOUT_MS = 9,
-  SETTINGS_KEY_SLEEP_FACE_INTERVAL_S = 10
+  SETTINGS_KEY_SLEEP_FACE_INTERVAL_S = 10,
+  SETTINGS_KEY_RTC_DATETIME = 11
 } settings_key_t;
 
 typedef struct
@@ -44,6 +45,16 @@ typedef struct
   uint8_t reserved_u8[4];
 } settings_joy_cal_t;
 
+typedef struct
+{
+  uint8_t hours;
+  uint8_t minutes;
+  uint8_t seconds;
+  uint8_t day;
+  uint8_t month;
+  uint16_t year;
+} settings_rtc_datetime_t;
+
 void settings_init(void);
 void settings_reset_defaults(void);
 uint32_t settings_get_seq(void);
@@ -51,7 +62,9 @@ uint32_t settings_get_seq(void);
 bool settings_get(settings_key_t key, void *out);
 bool settings_set(settings_key_t key, const void *value);
 bool settings_is_dirty(void);
+bool settings_is_loaded(void);
 bool settings_commit(void);
+void settings_mark_loaded(void);
 void settings_mark_saved(void);
 
 bool settings_encode(uint8_t *out, uint32_t max, uint32_t *out_len);

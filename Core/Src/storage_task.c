@@ -1317,6 +1317,7 @@ static void storage_load_settings(void)
   {
     settings_reset_defaults();
   }
+  settings_mark_loaded();
 }
 
 static const char *storage_request_path(const char *fallback)

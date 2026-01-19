@@ -3,6 +3,7 @@
 #include "app_freertos.h"
 #include "audio_task.h"
 #include "display_task.h"
+#include "settings.h"
 #include "storage_task.h"
 #include "sleep_face.h"
 
@@ -48,6 +49,7 @@ static volatile power_perf_mode_t s_game_perf_mode = POWER_PERF_MODE_CRUISE;
 static volatile uint8_t s_sleepface_active = 0U;
 static volatile uint8_t s_rtc_alarm_pending = 0U;
 static volatile uint8_t s_rtc_set_pending = 0U;
+static uint8_t s_rtc_settings_applied = 0U;
 static volatile uint8_t s_sleepface_interval_dirty = 0U;
 static volatile uint32_t s_sleepface_interval_s = kSleepfaceIntervalDefaultS;
 static uint32_t s_sleepface_hold_until = 0U;
@@ -144,6 +146,64 @@ static uint8_t power_task_rtc_get_datetime(power_rtc_datetime_t *out)
   out->month = (uint8_t)d.Month;
   out->year = (uint16_t)(2000U + (uint16_t)d.Year);
   return 1U;
+}
+
+static uint8_t power_task_rtc_is_default(const power_rtc_datetime_t *dt)
+{
+  if (dt == NULL)
+  {
+    return 1U;
+  }
+
+  if ((dt->year == 2000U) &&
+      (dt->month == 1U) &&
+      (dt->day == 1U) &&
+      (dt->hours == 0U) &&
+      (dt->minutes == 0U) &&
+      (dt->seconds == 0U))
+  {
+    return 1U;
+  }
+
+  return 0U;
+}
+
+static void power_task_apply_rtc_settings_once(void)
+{
+  if (s_rtc_settings_applied != 0U)
+  {
+    return;
+  }
+
+  if (!settings_is_loaded())
+  {
+    return;
+  }
+
+  power_rtc_datetime_t now = {0};
+  uint8_t apply = 1U;
+  if (power_task_rtc_get_datetime(&now) != 0U)
+  {
+    apply = power_task_rtc_is_default(&now);
+  }
+
+  if (apply != 0U)
+  {
+    settings_rtc_datetime_t stored = {0};
+    if (settings_get(SETTINGS_KEY_RTC_DATETIME, &stored))
+    {
+      power_rtc_datetime_t dt = {0};
+      dt.hours = stored.hours;
+      dt.minutes = stored.minutes;
+      dt.seconds = stored.seconds;
+      dt.day = stored.day;
+      dt.month = stored.month;
+      dt.year = stored.year;
+      power_task_request_rtc_set(&dt);
+    }
+  }
+
+  s_rtc_settings_applied = 1U;
 }
 
 static void power_task_rtc_add_seconds(power_rtc_datetime_t *dt, uint32_t delta_s)
@@ -751,6 +811,8 @@ void power_task_run(void)
 
   for (;;)
   {
+    power_task_apply_rtc_settings_once();
+
     if (s_restore_full_clocks != 0U)
     {
       s_restore_full_clocks = 0U;
@@ -758,6 +820,13 @@ void power_task_run(void)
     }
 
     uint32_t timeout = (s_sleep_pending != 0U) ? 20U : osWaitForever;
+    if (s_rtc_settings_applied == 0U)
+    {
+      if (timeout == osWaitForever)
+      {
+        timeout = 50U;
+      }
+    }
     if ((s_rtc_alarm_pending != 0U) || (s_rtc_set_pending != 0U) || (s_sleepface_interval_dirty != 0U))
     {
       timeout = 0U;
@@ -1066,6 +1135,15 @@ void power_task_request_rtc_set(const power_rtc_datetime_t *dt)
   {
     return;
   }
+
+  settings_rtc_datetime_t stored = {0};
+  stored.hours = dt->hours;
+  stored.minutes = dt->minutes;
+  stored.seconds = dt->seconds;
+  stored.day = dt->day;
+  stored.month = dt->month;
+  stored.year = dt->year;
+  (void)settings_set(SETTINGS_KEY_RTC_DATETIME, &stored);
 
   s_rtc_set_value = *dt;
   s_rtc_set_pending = 1U;

@@ -1,5 +1,7 @@
 #include "settings.h"
 
+#include "settings.h"
+
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "lfs_util.h"
@@ -53,6 +55,7 @@ typedef struct
   uint8_t sleep_allow_game;
   uint32_t sleep_timeout_ms;
   uint32_t sleep_face_interval_s;
+  settings_rtc_datetime_t rtc;
   uint32_t reserved_u32[6];
 } settings_data_t;
 
@@ -64,6 +67,7 @@ typedef struct
 static settings_data_t s_settings;
 static uint32_t s_seq = 0U;
 static uint8_t s_dirty = 0U;
+static uint8_t s_loaded = 0U;
 
 static void settings_lock(void)
 {
@@ -108,6 +112,74 @@ static uint32_t settings_read_u32_le(const uint8_t *src)
          | ((uint32_t)src[3] << 24);
 }
 
+static uint8_t settings_is_leap_year(uint16_t year)
+{
+  return ((year % 4U) == 0U) ? 1U : 0U;
+}
+
+static uint8_t settings_days_in_month(uint16_t year, uint8_t month)
+{
+  static const uint8_t kDays[12] = { 31U, 28U, 31U, 30U, 31U, 30U, 31U, 31U, 30U, 31U, 30U, 31U };
+  if ((month == 0U) || (month > 12U))
+  {
+    return 31U;
+  }
+
+  uint8_t days = kDays[month - 1U];
+  if ((month == 2U) && (settings_is_leap_year(year) != 0U))
+  {
+    days = 29U;
+  }
+  return days;
+}
+
+static void settings_rtc_clamp(settings_rtc_datetime_t *dt)
+{
+  if (dt == NULL)
+  {
+    return;
+  }
+
+  if (dt->hours > 23U)
+  {
+    dt->hours = 23U;
+  }
+  if (dt->minutes > 59U)
+  {
+    dt->minutes = 59U;
+  }
+  if (dt->seconds > 59U)
+  {
+    dt->seconds = 59U;
+  }
+  if (dt->month < 1U)
+  {
+    dt->month = 1U;
+  }
+  if (dt->month > 12U)
+  {
+    dt->month = 12U;
+  }
+  if (dt->year < 2000U)
+  {
+    dt->year = 2000U;
+  }
+  if (dt->year > 2099U)
+  {
+    dt->year = 2099U;
+  }
+
+  uint8_t dim = settings_days_in_month(dt->year, dt->month);
+  if (dt->day < 1U)
+  {
+    dt->day = 1U;
+  }
+  if (dt->day > dim)
+  {
+    dt->day = dim;
+  }
+}
+
 static const settings_joy_cal_t k_default_joy_cal =
 {
   .cx = 0.0f,
@@ -123,6 +195,16 @@ static const settings_joy_cal_t k_default_joy_cal =
   .abs_deadzone_en = 0U,
   .valid = 0U,
   .reserved_u8 = {0U, 0U, 0U, 0U}
+};
+
+static const settings_rtc_datetime_t k_default_rtc =
+{
+  .hours = 0U,
+  .minutes = 0U,
+  .seconds = 0U,
+  .day = 1U,
+  .month = 1U,
+  .year = 2026U
 };
 
 static const settings_registry_entry_t k_registry[] =
@@ -226,6 +308,16 @@ static const settings_registry_entry_t k_registry[] =
     .min.u32 = 0U,
     .max.u32 = UINT32_MAX,
     .def_bytes = NULL
+  },
+  {
+    .key = SETTINGS_KEY_RTC_DATETIME,
+    .type = SETTINGS_TYPE_BYTES,
+    .offset = (uint16_t)offsetof(settings_data_t, rtc),
+    .size = (uint16_t)sizeof(settings_rtc_datetime_t),
+    .def = {0U},
+    .min = {0U},
+    .max = {0U},
+    .def_bytes = &k_default_rtc
   }
 };
 
@@ -436,6 +528,18 @@ static bool settings_apply_entry_value(settings_data_t *data,
       {
         return false;
       }
+      if ((entry->key == SETTINGS_KEY_RTC_DATETIME) && (entry->size == sizeof(settings_rtc_datetime_t)))
+      {
+        settings_rtc_datetime_t rtc_value;
+        (void)memcpy(&rtc_value, value, sizeof(rtc_value));
+        settings_rtc_clamp(&rtc_value);
+        if (memcmp(dst, &rtc_value, sizeof(rtc_value)) != 0)
+        {
+          (void)memcpy(dst, &rtc_value, sizeof(rtc_value));
+          local_changed = true;
+        }
+        break;
+      }
       if (memcmp(dst, value, entry->size) != 0)
       {
         (void)memcpy(dst, value, entry->size);
@@ -459,6 +563,7 @@ void settings_init(void)
   settings_set_defaults(&s_settings);
   s_seq = 1U;
   s_dirty = 0U;
+  s_loaded = 0U;
 }
 
 void settings_reset_defaults(void)
@@ -550,6 +655,14 @@ bool settings_is_dirty(void)
   return (dirty != 0U);
 }
 
+bool settings_is_loaded(void)
+{
+  settings_lock();
+  uint8_t loaded = s_loaded;
+  settings_unlock();
+  return (loaded != 0U);
+}
+
 bool settings_commit(void)
 {
   bool dirty = settings_is_dirty();
@@ -559,6 +672,13 @@ bool settings_commit(void)
   }
 
   return storage_request_save_settings();
+}
+
+void settings_mark_loaded(void)
+{
+  settings_lock();
+  s_loaded = 1U;
+  settings_unlock();
 }
 
 void settings_mark_saved(void)
@@ -689,6 +809,7 @@ bool settings_decode(const uint8_t *data, uint32_t len)
   s_settings = updated;
   s_seq++;
   s_dirty = 0U;
+  s_loaded = 1U;
   settings_unlock();
   return true;
 }
