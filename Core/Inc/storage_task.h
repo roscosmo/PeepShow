@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define STORAGE_PATH_MAX 64U
-#define STORAGE_DATA_MAX 256U
+#define STORAGE_DATA_MAX 4096U
 
 typedef enum
 {

@@ -8,9 +8,24 @@
 extern "C" {
 #endif
 
-#define SETTINGS_MAGIC 0x50534554UL
-#define SETTINGS_VERSION 3U
-#define SETTINGS_PATH "/settings.bin"
+#define SETTINGS_MAGIC 0x564C5453UL
+#define SETTINGS_VERSION 1U
+#define SETTINGS_PATH "/settings.tlv"
+#define SETTINGS_PATH_TMP "/settings.tmp"
+
+typedef enum
+{
+  SETTINGS_KEY_JOY_CAL = 1,
+  SETTINGS_KEY_MENU_PRESS_NORM = 2,
+  SETTINGS_KEY_MENU_RELEASE_NORM = 3,
+  SETTINGS_KEY_MENU_AXIS_RATIO = 4,
+  SETTINGS_KEY_KEYCLICK_ENABLED = 5,
+  SETTINGS_KEY_VOLUME = 6,
+  SETTINGS_KEY_SLEEP_ENABLED = 7,
+  SETTINGS_KEY_SLEEP_ALLOW_GAME = 8,
+  SETTINGS_KEY_SLEEP_TIMEOUT_MS = 9,
+  SETTINGS_KEY_SLEEP_FACE_INTERVAL_S = 10
+} settings_key_t;
 
 typedef struct
 {
@@ -29,34 +44,15 @@ typedef struct
   uint8_t reserved_u8[4];
 } settings_joy_cal_t;
 
-typedef struct
-{
-  settings_joy_cal_t joy;
-  float menu_press_norm;
-  float menu_release_norm;
-  float menu_axis_ratio;
-  uint8_t keyclick_enabled;
-  uint8_t volume;
-  uint8_t sleep_enabled;
-  uint8_t sleep_allow_game;
-  uint32_t sleep_timeout_ms;
-  uint32_t sleep_face_interval_s;
-  uint32_t reserved_u32[6];
-} settings_data_t;
-
 void settings_init(void);
 void settings_reset_defaults(void);
 uint32_t settings_get_seq(void);
-void settings_get(settings_data_t *out);
 
-void settings_set_keyclick(uint8_t enabled);
-void settings_set_volume(uint8_t volume);
-void settings_set_menu_params(float press_norm, float release_norm, float axis_ratio);
-void settings_set_joy_cal(const settings_joy_cal_t *cal);
-void settings_set_sleep_enabled(uint8_t enabled);
-void settings_set_sleep_allow_game(uint8_t allow);
-void settings_set_sleep_timeout_ms(uint32_t timeout_ms);
-void settings_set_sleep_face_interval_s(uint32_t interval_s);
+bool settings_get(settings_key_t key, void *out);
+bool settings_set(settings_key_t key, const void *value);
+bool settings_is_dirty(void);
+bool settings_commit(void);
+void settings_mark_saved(void);
 
 bool settings_encode(uint8_t *out, uint32_t max, uint32_t *out_len);
 bool settings_decode(const uint8_t *data, uint32_t len);

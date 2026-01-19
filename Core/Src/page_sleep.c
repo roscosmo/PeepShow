@@ -129,8 +129,14 @@ static uint32_t page_sleep_event(ui_evt_t evt)
 
   if ((evt == UI_EVT_DEC) || (evt == UI_EVT_INC) || (evt == UI_EVT_SELECT))
   {
-    settings_data_t data;
-    settings_get(&data);
+    uint8_t sleep_enabled = 0U;
+    uint8_t sleep_allow_game = 0U;
+    uint32_t sleep_face_interval_s = 0U;
+    uint32_t sleep_timeout_ms = 0U;
+    (void)settings_get(SETTINGS_KEY_SLEEP_ENABLED, &sleep_enabled);
+    (void)settings_get(SETTINGS_KEY_SLEEP_ALLOW_GAME, &sleep_allow_game);
+    (void)settings_get(SETTINGS_KEY_SLEEP_FACE_INTERVAL_S, &sleep_face_interval_s);
+    (void)settings_get(SETTINGS_KEY_SLEEP_TIMEOUT_MS, &sleep_timeout_ms);
     bool inc = (evt == UI_EVT_INC);
 
     if ((evt == UI_EVT_SELECT) && (s_sleep_index >= 2U))
@@ -140,23 +146,23 @@ static uint32_t page_sleep_event(ui_evt_t evt)
 
     if (s_sleep_index == 0U)
     {
-      uint8_t enabled = (data.sleep_enabled != 0U) ? 1U : 0U;
+      uint8_t enabled = (sleep_enabled != 0U) ? 1U : 0U;
       enabled = (evt == UI_EVT_SELECT) ? (uint8_t)(!enabled) : (uint8_t)((inc != 0U) ? 1U : 0U);
-      settings_set_sleep_enabled(enabled);
+      (void)settings_set(SETTINGS_KEY_SLEEP_ENABLED, &enabled);
       power_task_set_sleep_enabled(enabled);
       result |= UI_PAGE_EVENT_RENDER;
     }
     else if (s_sleep_index == 1U)
     {
-      uint8_t allow = (data.sleep_allow_game != 0U) ? 1U : 0U;
+      uint8_t allow = (sleep_allow_game != 0U) ? 1U : 0U;
       allow = (evt == UI_EVT_SELECT) ? (uint8_t)(!allow) : (uint8_t)((inc != 0U) ? 1U : 0U);
-      settings_set_sleep_allow_game(allow);
+      (void)settings_set(SETTINGS_KEY_SLEEP_ALLOW_GAME, &allow);
       power_task_set_game_sleep_allowed(allow);
       result |= UI_PAGE_EVENT_RENDER;
     }
     else if (s_sleep_index == 2U)
     {
-      uint8_t idx = sleepface_interval_index(data.sleep_face_interval_s);
+      uint8_t idx = sleepface_interval_index(sleep_face_interval_s);
       uint8_t count = (uint8_t)(sizeof(k_sleepface_interval_s) / sizeof(k_sleepface_interval_s[0]));
       if (inc)
       {
@@ -167,13 +173,13 @@ static uint32_t page_sleep_event(ui_evt_t evt)
         idx = (idx == 0U) ? (uint8_t)(count - 1U) : (uint8_t)(idx - 1U);
       }
       uint32_t interval_s = k_sleepface_interval_s[idx];
-      settings_set_sleep_face_interval_s(interval_s);
+      (void)settings_set(SETTINGS_KEY_SLEEP_FACE_INTERVAL_S, &interval_s);
       power_task_set_sleepface_interval_s(interval_s);
       result |= UI_PAGE_EVENT_RENDER;
     }
     else
     {
-      uint8_t idx = sleep_timeout_index(data.sleep_timeout_ms);
+      uint8_t idx = sleep_timeout_index(sleep_timeout_ms);
       uint8_t count = (uint8_t)(sizeof(k_sleep_timeout_ms) / sizeof(k_sleep_timeout_ms[0]));
       if (inc)
       {
@@ -184,7 +190,7 @@ static uint32_t page_sleep_event(ui_evt_t evt)
         idx = (idx == 0U) ? (uint8_t)(count - 1U) : (uint8_t)(idx - 1U);
       }
       uint32_t timeout_ms = k_sleep_timeout_ms[idx];
-      settings_set_sleep_timeout_ms(timeout_ms);
+      (void)settings_set(SETTINGS_KEY_SLEEP_TIMEOUT_MS, &timeout_ms);
       power_task_set_inactivity_timeout_ms(timeout_ms);
       result |= UI_PAGE_EVENT_RENDER;
     }
@@ -211,18 +217,24 @@ static uint16_t ui_text_width(const char *text)
 
 static void page_sleep_render(void)
 {
-  settings_data_t data;
-  settings_get(&data);
+  uint8_t sleep_enabled = 0U;
+  uint8_t sleep_allow_game = 0U;
+  uint32_t sleep_timeout_ms = 0U;
+  uint32_t sleep_face_interval_s = 0U;
+  (void)settings_get(SETTINGS_KEY_SLEEP_ENABLED, &sleep_enabled);
+  (void)settings_get(SETTINGS_KEY_SLEEP_ALLOW_GAME, &sleep_allow_game);
+  (void)settings_get(SETTINGS_KEY_SLEEP_TIMEOUT_MS, &sleep_timeout_ms);
+  (void)settings_get(SETTINGS_KEY_SLEEP_FACE_INTERVAL_S, &sleep_face_interval_s);
 
   renderFill(false);
   renderDrawText(4U, 4U, "SLEEP OPTIONS", RENDER_LAYER_UI, RENDER_STATE_BLACK);
 
-  const char *sleep_on = (data.sleep_enabled != 0U) ? "ON" : "OFF";
-  const char *game_on = (data.sleep_allow_game != 0U) ? "ON" : "OFF";
+  const char *sleep_on = (sleep_enabled != 0U) ? "ON" : "OFF";
+  const char *game_on = (sleep_allow_game != 0U) ? "ON" : "OFF";
   char timeout_buf[8];
   char face_buf[8];
-  const char *timeout = sleep_timeout_label(data.sleep_timeout_ms, timeout_buf, sizeof(timeout_buf));
-  uint8_t face_idx = sleepface_interval_index(data.sleep_face_interval_s);
+  const char *timeout = sleep_timeout_label(sleep_timeout_ms, timeout_buf, sizeof(timeout_buf));
+  uint8_t face_idx = sleepface_interval_index(sleep_face_interval_s);
   uint32_t face_s = k_sleepface_interval_s[face_idx];
   const char *face = sleepface_interval_label(face_s, face_buf, sizeof(face_buf));
 

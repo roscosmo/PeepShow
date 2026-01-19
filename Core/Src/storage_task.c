@@ -88,6 +88,7 @@ static uint8_t s_readback[STORAGE_DATA_MAX];
 static const char k_test_path[] = "/test.txt";
 static const uint8_t k_test_data[] = "PeepShow littlefs test\n";
 static const char k_settings_path[] = SETTINGS_PATH;
+static const char k_settings_tmp_path[] = SETTINGS_PATH_TMP;
 static const char k_stream_path[] = "/music.wav";
 
 static uint32_t storage_read_u32_le(const uint8_t *data)
@@ -1016,6 +1017,53 @@ static int storage_op_write(const char *path, const uint8_t *data, uint32_t len)
   return 0;
 }
 
+static int storage_op_write_atomic(const char *tmp_path, const char *final_path,
+                                   const uint8_t *data, uint32_t len)
+{
+  lfs_file_t file;
+  int res = lfs_file_opencfg(&s_lfs, &file, tmp_path,
+                             LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
+                             &s_file_cfg);
+  if (res < 0)
+  {
+    return res;
+  }
+
+  lfs_ssize_t wrote = lfs_file_write(&s_lfs, &file, data, len);
+  if (wrote < 0)
+  {
+    (void)lfs_file_close(&s_lfs, &file);
+    return (int)wrote;
+  }
+
+  res = lfs_file_sync(&s_lfs, &file);
+  if (res < 0)
+  {
+    (void)lfs_file_close(&s_lfs, &file);
+    return res;
+  }
+
+  res = lfs_file_close(&s_lfs, &file);
+  if (res < 0)
+  {
+    return res;
+  }
+
+  if ((uint32_t)wrote != len)
+  {
+    return LFS_ERR_IO;
+  }
+
+  res = lfs_rename(&s_lfs, tmp_path, final_path);
+  if (res < 0)
+  {
+    (void)lfs_remove(&s_lfs, tmp_path);
+    return res;
+  }
+
+  return 0;
+}
+
 static int storage_op_read(const char *path, uint32_t *out_len)
 {
   lfs_file_t file;
@@ -1244,8 +1292,12 @@ static int storage_save_settings(void)
     return LFS_ERR_INVAL;
   }
 
-  int res = storage_op_write(k_settings_path, s_readback, len);
+  int res = storage_op_write_atomic(k_settings_tmp_path, k_settings_path, s_readback, len);
   storage_status_update(STORAGE_OP_SAVE_SETTINGS, res, len);
+  if (res == 0)
+  {
+    settings_mark_saved();
+  }
   return res;
 }
 

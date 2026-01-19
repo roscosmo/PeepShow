@@ -24,7 +24,7 @@ static uint32_t page_sound_event(ui_evt_t evt)
     {
       volume--;
       audio_set_volume(volume);
-      settings_set_volume(volume);
+      (void)settings_set(SETTINGS_KEY_VOLUME, &volume);
       result |= UI_PAGE_EVENT_RENDER;
     }
   }
@@ -35,7 +35,7 @@ static uint32_t page_sound_event(ui_evt_t evt)
     {
       volume++;
       audio_set_volume(volume);
-      settings_set_volume(volume);
+      (void)settings_set(SETTINGS_KEY_VOLUME, &volume);
       result |= UI_PAGE_EVENT_RENDER;
     }
   }
@@ -43,7 +43,8 @@ static uint32_t page_sound_event(ui_evt_t evt)
   {
     bool enabled = !ui_router_get_keyclick();
     ui_router_set_keyclick(enabled);
-    settings_set_keyclick(enabled ? 1U : 0U);
+    uint8_t keyclick = enabled ? 1U : 0U;
+    (void)settings_set(SETTINGS_KEY_KEYCLICK_ENABLED, &keyclick);
     result |= UI_PAGE_EVENT_RENDER;
   }
 

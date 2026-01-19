@@ -5,7 +5,6 @@
 #include "cmsis_os2.h"
 #include "render_demo.h"
 #include "settings.h"
-#include "storage_task.h"
 #include "ui_actions.h"
 #include "ui_router.h"
 #include "power_task.h"
@@ -42,14 +41,24 @@ static void ui_apply_settings(uint32_t *seq_cache)
     return;
   }
 
-  settings_data_t data;
-  settings_get(&data);
-  audio_set_volume(data.volume);
-  ui_router_set_keyclick(data.keyclick_enabled != 0U);
-  power_task_set_sleep_enabled(data.sleep_enabled);
-  power_task_set_game_sleep_allowed(data.sleep_allow_game);
-  power_task_set_inactivity_timeout_ms(data.sleep_timeout_ms);
-  power_task_set_sleepface_interval_s(data.sleep_face_interval_s);
+  uint8_t volume = 0U;
+  uint8_t keyclick = 0U;
+  uint8_t sleep_enabled = 0U;
+  uint8_t sleep_allow_game = 0U;
+  uint32_t sleep_timeout_ms = 0U;
+  uint32_t sleep_face_interval_s = 0U;
+  (void)settings_get(SETTINGS_KEY_VOLUME, &volume);
+  (void)settings_get(SETTINGS_KEY_KEYCLICK_ENABLED, &keyclick);
+  (void)settings_get(SETTINGS_KEY_SLEEP_ENABLED, &sleep_enabled);
+  (void)settings_get(SETTINGS_KEY_SLEEP_ALLOW_GAME, &sleep_allow_game);
+  (void)settings_get(SETTINGS_KEY_SLEEP_TIMEOUT_MS, &sleep_timeout_ms);
+  (void)settings_get(SETTINGS_KEY_SLEEP_FACE_INTERVAL_S, &sleep_face_interval_s);
+  audio_set_volume(volume);
+  ui_router_set_keyclick(keyclick != 0U);
+  power_task_set_sleep_enabled(sleep_enabled);
+  power_task_set_game_sleep_allowed(sleep_allow_game);
+  power_task_set_inactivity_timeout_ms(sleep_timeout_ms);
+  power_task_set_sleepface_interval_s(sleep_face_interval_s);
 
   if (seq_cache != NULL)
   {
@@ -298,7 +307,7 @@ void ui_task_run(void)
     }
     else if (action == UI_ROUTER_ACTION_SAVE_EXIT)
     {
-      (void)storage_request_save_settings();
+      (void)settings_commit();
       resume_demo = true;
       ui_enter_game(&resume_demo);
       render = false;
