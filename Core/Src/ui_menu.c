@@ -31,7 +31,8 @@ static const ui_menu_t k_menu_power =
 
 static const ui_menu_item_t k_menu_storage_items[] =
 {
-  { "Storage Test", UI_MENU_ITEM_PAGE, { .page = &PAGE_STORAGE } }
+  { "Storage Info", UI_MENU_ITEM_PAGE, { .page = &PAGE_STORAGE_INFO } },
+  { "Audio Files", UI_MENU_ITEM_PAGE, { .page = &PAGE_STORAGE_AUDIO } }
 };
 
 static const ui_menu_t k_menu_storage =

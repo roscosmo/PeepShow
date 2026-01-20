@@ -783,9 +783,15 @@ Acceptance:
 Implementation notes (Phase 5 storage):
 - tskStorage owns OCTOSPI + littlefs and serves requests via qStorageReq; no other task calls littlefs.
 - littlefs is configured with static buffers (LFS_NO_MALLOC) and uses lfs_file_opencfg for file I/O.
-- Storage test page exercises write/read/list/delete/exists on demand.
-- Settings persist to `/settings.bin` with a small header + CRC; load happens on mount, invalid/missing resets to defaults.
-- Save is explicit only (menu "Save & Exit") to avoid flash wear from auto-save.
+- Storage submenu provides separate pages:
+  - Storage Info: stats + commands (remount, test, list).
+  - Audio Files: lists `/audio/` and plays registered sounds.
+- Settings persist to `/settings.tlv` as a TLV snapshot (header + per-record CRC); writes are `/settings.tmp` then atomic rename.
+- Settings registry is a static table (key/type/default/min/max/bytes default) used for defaults, validation, and clamping.
+- Load flow: defaults -> parse TLV -> apply valid records; missing/corrupt file leaves defaults, unknown keys or bad CRCs are skipped.
+- Runtime: `settings_set` updates RAM cache and marks dirty; `settings_commit` queues save; only menu "Save & Exit" triggers commit.
+- Adding a setting: extend `settings_key_t` and add a registry entry; encoder writes all registry entries to the snapshot.
+- RTC date/time is stored as `settings_rtc_datetime_t`; boot applies it only when RTC is still at default.
 
 ---
 
@@ -805,13 +811,14 @@ Acceptance:
 - No clock toggles outside tskPower
 
 Implementation notes (Phase 6 audio):
-- `tskAudio` runs in `Core/Src/audio_task.c` and consumes `qAudioCmd` (keyclick/tone/stop).
+- `tskAudio` runs in `Core/Src/audio_task.c` and consumes `qAudioCmd` (play/stop by sound ID).
 - Audio playback uses SAI1 TX DMA with a static buffer; DMA half/full/error callbacks signal via thread flags.
 - SAI TX DMA uses a GPDMA linked-list circular node configured in `Core/Src/audio_task.c` to avoid rearm gaps on long playback.
-- Keyclick uses embedded `menuBeep` WAV from `Core/Inc/sounds.h` with a tone fallback; volume is applied via `audio_set_volume` and settings UI.
-- Music test uses IMA ADPCM `Assets/music.wav` embedded as `musicWav` in `Core/Inc/sounds.h`; game mode `APP_BUTTON_B` toggles flash playback (seeds `/music.wav` if missing, then streams from littlefs).
+- Sound definitions live in `Core/Src/sound_manager.c` (ID, name, format, path, default gain/flags). UI/game code only uses IDs.
+- SFX playback supports up to 5 concurrent voices mixed into one output buffer; higher-priority sounds can steal lower-priority ones.
+- Streamed music is a single concurrent stream from `/audio/music.wav` (IMA ADPCM, 16 kHz).
 - SD_MODE is driven high on start and low on stop/error; GPIO init sets it low at boot in `Core/Src/main.c`.
-- `tskAudio` now posts AUDIO_ON/OFF sys events; `tskPower` tracks `audio_ref` and `debug_ref` and updates `egDebug`.
+- `tskAudio` posts AUDIO_ON/OFF sys events; `tskPower` tracks `audio_ref` and `debug_ref` and updates `egDebug`.
 - PLL2 gating is deferred: refcounts are tracked, but PLL2 remains always on for now.
 
 ---
@@ -824,7 +831,7 @@ Goal: stable streaming independent of SYSCLK.
 - [x] Enforce: no OCTOSPI clock switching during streaming
 - [x] Stream `/music.wav` from littlefs into tskAudio (IMA ADPCM) with a ring buffer
 - [x] Stress: stream + display + UI together
-- [ ] Shared buffer: allow muliple concurrent sounds
+- [x] Shared buffer: allow muliple concurrent sounds
 
 Acceptance:
 - Streaming does not stall UI/game
@@ -833,11 +840,13 @@ Acceptance:
 
 Implementation notes (Phase 7 streaming):
 - `tskPower` tracks `stream_ref` via APP_SYS_EVENT_STREAM_ON/OFF.
-- `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/music.wav`; it seeds from `musicWav` if missing or size mismatch.
-- `tskAudio` pulls stream bytes and decodes IMA ADPCM on the fly; Storage page A and game mode B toggle flash playback via `APP_AUDIO_CMD_FLASH_TOGGLE`.
+- `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/audio/music.wav`.
+- `tskAudio` pulls stream bytes and decodes IMA ADPCM on the fly; music is a single stream that can loop.
 - `STORAGE_OP_STREAM_TEST` remains as a stress read (currently not triggered from UI/game).
 - To avoid underruns under render load, `tskStorage` refills in a short loop and temporarily boosts priority during streaming; `tskAudio` waits for a small prebuffer before starting DMA.
 - PLL2 stays always-on for now; any future OCTOSPI clock changes must check `stream_ref` before switching.
+- Audio assets live in `Assets/audio/` and are placed on external flash under `/audio/`.
+- Manual seeding: set `kSeedAudioOnBoot` in `Core/Src/main.c` to write embedded WAVs to `/audio/` once, then set it back to 0.
 
 ---
 

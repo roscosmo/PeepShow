@@ -3,6 +3,8 @@
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "lfs.h"
+#include "audio_assets.h"
+#include "sound_manager.h"
 #include "settings.h"
 #include "main.h"
 #include "power_task.h"
@@ -10,7 +12,6 @@
 #include <string.h>
 
 extern OSPI_HandleTypeDef hospi1;
-extern const unsigned char musicWav[];
 
 #define STORAGE_FLASH_BASE 0x00000000UL
 #define STORAGE_FLASH_SIZE (16UL * 1024UL * 1024UL)
@@ -82,6 +83,10 @@ static storage_status_t s_status;
 static uint8_t s_mounted = 0U;
 static uint8_t s_flash_in_dpd = 0U;
 static uint8_t s_stream_active = 0U;
+static uint8_t s_seed_audio_on_boot = 0U;
+static storage_audio_entry_t s_audio_list[STORAGE_AUDIO_LIST_MAX];
+static uint32_t s_audio_list_count = 0U;
+static uint32_t s_audio_list_seq = 0U;
 
 static uint8_t s_readback[STORAGE_DATA_MAX];
 
@@ -89,7 +94,7 @@ static const char k_test_path[] = "/test.txt";
 static const uint8_t k_test_data[] = "PeepShow littlefs test\n";
 static const char k_settings_path[] = SETTINGS_PATH;
 static const char k_settings_tmp_path[] = SETTINGS_PATH_TMP;
-static const char k_stream_path[] = "/music.wav";
+static const char k_stream_path[] = "/audio/music.wav";
 
 static uint32_t storage_read_u32_le(const uint8_t *data)
 {
@@ -104,8 +109,10 @@ static uint16_t storage_read_u16_le(const uint8_t *data)
   return (uint16_t)data[0] | (uint16_t)((uint16_t)data[1] << 8);
 }
 
-static uint32_t storage_music_asset_len(void);
-static int storage_write_asset(const char *path, const uint8_t *data, uint32_t len);
+static void storage_cache_audio_assets(void);
+static int storage_seed_audio_assets(uint8_t overwrite);
+static int storage_write_asset_file(const char *path, const uint8_t *data, uint32_t len);
+static int storage_audio_list_update(void);
 
 static void storage_status_update(storage_op_t op, int32_t err, uint32_t value)
 {
@@ -449,23 +456,12 @@ static int storage_stream_open_file(const char *path)
 
   storage_stream_close_file();
 
-  uint32_t asset_len = storage_music_asset_len();
-  if (asset_len == 0U)
-  {
-    s_stream.error = 1U;
-    return LFS_ERR_INVAL;
-  }
-
   struct lfs_info info;
   int res = lfs_stat(&s_lfs, path, &info);
-  if ((res != 0) || ((uint32_t)info.size != asset_len))
+  if (res != 0)
   {
-    res = storage_write_asset(path, musicWav, asset_len);
-    if (res != 0)
-    {
-      s_stream.error = 1U;
-      return res;
-    }
+    s_stream.error = 1U;
+    return res;
   }
 
   res = lfs_file_opencfg(&s_lfs, &s_stream.file, path, LFS_O_RDONLY, &s_file_cfg);
@@ -567,28 +563,71 @@ static void storage_stream_fill(void)
   }
 }
 
-static uint32_t storage_music_asset_len(void)
+static void storage_cache_audio_assets(void)
 {
-  if ((musicWav[0] != 'R') || (musicWav[1] != 'I') || (musicWav[2] != 'F') || (musicWav[3] != 'F'))
+  uint32_t count = sound_registry_count();
+  for (uint32_t i = 0U; i < count; ++i)
   {
-    return 0U;
-  }
-  if ((musicWav[8] != 'W') || (musicWav[9] != 'A') || (musicWav[10] != 'V') || (musicWav[11] != 'E'))
-  {
-    return 0U;
-  }
+    const sound_registry_entry_t *entry = sound_registry_get_by_index(i);
+    if (entry == NULL)
+    {
+      continue;
+    }
+    if ((entry->source != SOUND_SOURCE_LFS) || ((entry->flags & SOUND_F_STREAM) != 0U))
+    {
+      continue;
+    }
 
-  uint32_t riff_size = storage_read_u32_le(&musicWav[4]);
-  uint32_t total = riff_size + 8U;
-  if ((total < 44U) || (total > STORAGE_FLASH_SIZE))
-  {
-    return 0U;
+    uint32_t max_len = 0U;
+    uint8_t *buf = sound_cache_get_buffer(entry->id, &max_len);
+    if ((buf == NULL) || (max_len == 0U) || (entry->path == NULL))
+    {
+      sound_cache_set(entry->id, 0U, 0U);
+      continue;
+    }
+
+    struct lfs_info info;
+    int res = lfs_stat(&s_lfs, entry->path, &info);
+    if (res != 0)
+    {
+      sound_cache_set(entry->id, 0U, 0U);
+      continue;
+    }
+
+    uint32_t file_size = (uint32_t)info.size;
+    if ((file_size == 0U) || (file_size > max_len))
+    {
+      sound_cache_set(entry->id, 0U, 0U);
+      continue;
+    }
+
+    lfs_file_t file;
+    res = lfs_file_opencfg(&s_lfs, &file, entry->path, LFS_O_RDONLY, &s_file_cfg);
+    if (res < 0)
+    {
+      sound_cache_set(entry->id, 0U, 0U);
+      continue;
+    }
+
+    lfs_ssize_t read_len = lfs_file_read(&s_lfs, &file, buf, (lfs_size_t)file_size);
+    int close_res = lfs_file_close(&s_lfs, &file);
+    if ((read_len < 0) || ((uint32_t)read_len != file_size) || (close_res < 0))
+    {
+      sound_cache_set(entry->id, 0U, 0U);
+      continue;
+    }
+
+    sound_cache_set(entry->id, (uint32_t)read_len, 1U);
   }
-  return total;
 }
 
-static int storage_write_asset(const char *path, const uint8_t *data, uint32_t len)
+static int storage_write_asset_file(const char *path, const uint8_t *data, uint32_t len)
 {
+  if ((path == NULL) || (data == NULL) || (len == 0U))
+  {
+    return LFS_ERR_INVAL;
+  }
+
   lfs_file_t file;
   int res = lfs_file_opencfg(&s_lfs, &file, path,
                              LFS_O_WRONLY | LFS_O_CREAT | LFS_O_TRUNC,
@@ -608,27 +647,108 @@ static int storage_write_asset(const char *path, const uint8_t *data, uint32_t l
     }
 
     lfs_ssize_t wrote = lfs_file_write(&s_lfs, &file, &data[offset], (lfs_size_t)chunk);
-    if (wrote < 0)
+    if ((wrote < 0) || ((uint32_t)wrote != chunk))
     {
-      res = (int)wrote;
-      break;
+      (void)lfs_file_close(&s_lfs, &file);
+      return (wrote < 0) ? (int)wrote : LFS_ERR_IO;
     }
-    if ((uint32_t)wrote != chunk)
-    {
-      res = LFS_ERR_IO;
-      break;
-    }
-
     offset += chunk;
   }
 
-  int close_res = lfs_file_close(&s_lfs, &file);
-  if ((res == 0) && (close_res < 0))
+  res = lfs_file_close(&s_lfs, &file);
+  if (res < 0)
   {
-    res = close_res;
+    return res;
+  }
+
+  return 0;
+}
+
+static int storage_seed_audio_assets(uint8_t overwrite)
+{
+  int res = lfs_mkdir(&s_lfs, "/audio");
+  if ((res < 0) && (res != LFS_ERR_EXIST))
+  {
+    return res;
+  }
+
+  uint32_t count = audio_assets_count();
+  for (uint32_t i = 0U; i < count; ++i)
+  {
+    const audio_asset_t *asset = audio_assets_get(i);
+    if ((asset == NULL) || (asset->path == NULL) || (asset->data == NULL) || (asset->len == 0U))
+    {
+      continue;
+    }
+
+    if (overwrite == 0U)
+    {
+      struct lfs_info info;
+      if (lfs_stat(&s_lfs, asset->path, &info) == 0)
+      {
+        continue;
+      }
+    }
+
+    int write_res = storage_write_asset_file(asset->path, asset->data, asset->len);
+    if (write_res != 0)
+    {
+      res = write_res;
+    }
   }
 
   return res;
+}
+
+static int storage_audio_list_update(void)
+{
+  memset(s_audio_list, 0, sizeof(s_audio_list));
+  s_audio_list_count = 0U;
+
+  lfs_dir_t dir;
+  struct lfs_info info;
+  int res = lfs_dir_open(&s_lfs, &dir, "/audio");
+  if (res < 0)
+  {
+    s_audio_list_seq++;
+    return res;
+  }
+
+  while ((res = lfs_dir_read(&s_lfs, &dir, &info)) > 0)
+  {
+    if ((strcmp(info.name, ".") == 0) || (strcmp(info.name, "..") == 0))
+    {
+      continue;
+    }
+    if (info.type != LFS_TYPE_REG)
+    {
+      continue;
+    }
+    if (s_audio_list_count >= STORAGE_AUDIO_LIST_MAX)
+    {
+      continue;
+    }
+
+    storage_audio_entry_t *entry = &s_audio_list[s_audio_list_count];
+    (void)strncpy(entry->name, info.name, STORAGE_AUDIO_NAME_MAX - 1U);
+    entry->name[STORAGE_AUDIO_NAME_MAX - 1U] = '\0';
+    entry->size = (uint32_t)info.size;
+    s_audio_list_count++;
+  }
+
+  int close_res = lfs_dir_close(&s_lfs, &dir);
+  int result = 0;
+  if (res < 0)
+  {
+    result = res;
+  }
+  if (close_res < 0)
+  {
+    result = close_res;
+  }
+
+  s_audio_list_seq++;
+  return result;
 }
 
 static void flash_cmd_init(OSPI_RegularCmdTypeDef *cmd)
@@ -1140,23 +1260,6 @@ static int storage_op_stream_read(const char *path, uint32_t *out_len)
 
 static int storage_op_stream_test(const char *path, uint32_t *out_len)
 {
-  uint32_t asset_len = storage_music_asset_len();
-  if (asset_len == 0U)
-  {
-    return LFS_ERR_INVAL;
-  }
-
-  struct lfs_info info;
-  int res = lfs_stat(&s_lfs, path, &info);
-  if ((res != 0) || ((uint32_t)info.size != asset_len))
-  {
-    res = storage_write_asset(path, musicWav, asset_len);
-    if (res != 0)
-    {
-      return res;
-    }
-  }
-
   return storage_op_stream_read(path, out_len);
 }
 
@@ -1350,6 +1453,13 @@ static void storage_handle_request(storage_op_t op)
       if (storage_mount(STORAGE_OP_REMOUNT) == 0)
       {
         storage_load_settings();
+        if (s_seed_audio_on_boot != 0U)
+        {
+          (void)storage_seed_audio_assets(1U);
+          s_seed_audio_on_boot = 0U;
+        }
+        storage_cache_audio_assets();
+        (void)storage_audio_list_update();
       }
       break;
     }
@@ -1404,6 +1514,12 @@ static void storage_handle_request(storage_op_t op)
       uint32_t count = 0U;
       int res = storage_op_list(storage_request_path("/"), &count);
       storage_status_update(STORAGE_OP_LIST, res, count);
+      break;
+    }
+    case STORAGE_OP_AUDIO_LIST:
+    {
+      int res = storage_audio_list_update();
+      storage_status_update(STORAGE_OP_AUDIO_LIST, res, s_audio_list_count);
       break;
     }
     case STORAGE_OP_DELETE:
@@ -1508,6 +1624,13 @@ void storage_task_run(void)
   if (storage_mount(STORAGE_OP_MOUNT) == 0)
   {
     storage_load_settings();
+    if (s_seed_audio_on_boot != 0U)
+    {
+      (void)storage_seed_audio_assets(1U);
+      s_seed_audio_on_boot = 0U;
+    }
+    storage_cache_audio_assets();
+    (void)storage_audio_list_update();
   }
   storage_status_refresh_stats();
 
@@ -1603,6 +1726,11 @@ uint8_t storage_is_busy(void)
   return ((s_stream.active != 0U) || (s_req_pending != 0U)) ? 1U : 0U;
 }
 
+void storage_set_seed_audio_on_boot(uint8_t enable)
+{
+  s_seed_audio_on_boot = (enable != 0U) ? 1U : 0U;
+}
+
 bool storage_request_remount(void)
 {
   return storage_request_submit(STORAGE_OP_REMOUNT, NULL, NULL, 0U);
@@ -1667,4 +1795,30 @@ bool storage_request_stream_open(const char *path)
 bool storage_request_stream_close(void)
 {
   return storage_request_submit(STORAGE_OP_STREAM_CLOSE, NULL, NULL, 0U);
+}
+
+bool storage_request_audio_list(void)
+{
+  return storage_request_submit(STORAGE_OP_AUDIO_LIST, "/audio", NULL, 0U);
+}
+
+uint32_t storage_audio_list_count(void)
+{
+  return s_audio_list_count;
+}
+
+uint32_t storage_audio_list_seq(void)
+{
+  return s_audio_list_seq;
+}
+
+uint8_t storage_audio_list_get(uint32_t index, storage_audio_entry_t *out)
+{
+  if ((out == NULL) || (index >= s_audio_list_count))
+  {
+    return 0U;
+  }
+
+  *out = s_audio_list[index];
+  return 1U;
 }

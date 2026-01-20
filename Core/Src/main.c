@@ -26,6 +26,7 @@
 #include "app_freertos.h"
 #include "debug_uart.h"
 #include "rtos_isr_bridge.h"
+#include "storage_task.h"
 #include "stdio.h"
 /* USER CODE END Includes */
 
@@ -90,6 +91,8 @@ static void MX_ICACHE_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* Set to 1 to seed /audio assets to external flash on boot. */
+static const uint8_t kSeedAudioOnBoot = 0U;
 /* USER CODE END 0 */
 
 /**
@@ -161,6 +164,8 @@ int main(void)
 
   
   printf("Boot\r\n");
+
+  storage_set_seed_audio_on_boot(kSeedAudioOnBoot);
 
   /* USER CODE END 2 */
 

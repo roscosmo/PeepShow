@@ -5,12 +5,9 @@ Hello agent! Here's some instructions for you to follow so we can develop this p
 # ABSOLUTE RULE: CLI / SHELL USAGE (READ CAREFULLY)
 
 Minimize command-line (CLI) whereever possible. 
-DO NOT make assumptions based off a lack of knowledge, however.
-Accuracy is foremost.
+if you think a job will require many CLIs give a breakdown and estimate. 
 If requirements are unclear, pause and ask instead of guessing.
 The user is here to help you too, they can debug and get information to make your job easier.
-
-
 
 # TOP PRIORITY: NO-CODE-FIRST GATE (HARD REQUIREMENT)
 
@@ -40,7 +37,9 @@ the "SUMMARY FOR APPROVAL" section AND the user gives you the go ahead.
 
 END SUMMARY — (WAIT FOR APPROVAL)
 
----
+*** NOTE: if you are given a build error, you do not need to ask for approval, proceed immediately to fix ***
+
+
 
 ## Hard Rules (Do Not Violate)
 - Do not modify CubeMX-generated code outside `/* USER CODE BEGIN */` blocks:

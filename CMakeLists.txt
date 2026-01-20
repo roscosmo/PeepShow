@@ -82,6 +82,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/game_task.c
     Core/Src/sensor_task.c
     Core/Src/audio_task.c
+    Core/Src/audio_assets.c
+    Core/Src/sound_manager.c
     Core/Src/storage_task.c
     Core/Src/power_task.c
     Core/Src/lfs.c

@@ -3,6 +3,7 @@
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "render_demo.h"
+#include "sound_manager.h"
 #include "power_task.h"
 
 void game_task_run(void)
@@ -24,8 +25,7 @@ void game_task_run(void)
     uint32_t button_id = (event & 0xFFU);
     if (button_id == (uint32_t)APP_BUTTON_B)
     {
-      app_audio_cmd_t audio_cmd = APP_AUDIO_CMD_FLASH_TOGGLE;
-      (void)osMessageQueuePut(qAudioCmdHandle, &audio_cmd, 0U, 0U);
+      sound_play(SND_MUSIC_1);
       continue;
     }
     if (button_id == (uint32_t)APP_BUTTON_L)

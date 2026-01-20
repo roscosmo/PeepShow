@@ -5,6 +5,7 @@
 #include "cmsis_os2.h"
 #include "render_demo.h"
 #include "settings.h"
+#include "sound_manager.h"
 #include "ui_actions.h"
 #include "ui_router.h"
 #include "power_task.h"
@@ -268,8 +269,7 @@ void ui_task_run(void)
 
     if (pressed && ui_router_get_keyclick())
     {
-      app_audio_cmd_t audio_cmd = APP_AUDIO_CMD_KEYCLICK;
-      (void)osMessageQueuePut(qAudioCmdHandle, &audio_cmd, 0U, 0U);
+      sound_play(SND_UI_CLICK);
     }
 
     ui_router_action_t action = UI_ROUTER_ACTION_NONE;

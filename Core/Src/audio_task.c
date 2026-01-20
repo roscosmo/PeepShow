@@ -3,12 +3,10 @@
 #include "app_freertos.h"
 #include "cmsis_os2.h"
 #include "main.h"
-#include "sounds.h"
+#include "sound_manager.h"
 #include "storage_task.h"
 #include "power_task.h"
 
-#include <math.h>
-#include <stdbool.h>
 
 extern SAI_HandleTypeDef hsai_BlockA1;
 
@@ -17,16 +15,6 @@ typedef enum
   AUDIO_STATE_IDLE = 0,
   AUDIO_STATE_PLAYING = 1
 } audio_state_t;
-
-typedef enum
-{
-  AUDIO_MODE_NONE = 0,
-  AUDIO_MODE_TONE,
-  AUDIO_MODE_CLICK_TONE,
-  AUDIO_MODE_CLICK_WAV,
-  AUDIO_MODE_MUSIC_ADPCM,
-  AUDIO_MODE_FLASH_ADPCM
-} audio_mode_t;
 
 typedef enum
 {
@@ -68,18 +56,28 @@ typedef struct
   uint8_t cur_byte;
 } adpcm_stream_state_t;
 
+typedef struct
+{
+  uint8_t active;
+  sound_id_t id;
+  sound_prio_t prio;
+  sound_flags_t flags;
+  uint8_t gain_q8;
+  wav_info_t wav;
+  adpcm_state_t adpcm;
+} audio_voice_t;
+
 static const uint32_t kAudioFlagHalf = (1UL << 0U);
 static const uint32_t kAudioFlagFull = (1UL << 1U);
 static const uint32_t kAudioFlagError = (1UL << 2U);
 
+#define AUDIO_MAX_SFX_VOICES 5U
+
 static const uint32_t kAudioSampleRate = 16000U;
-static const float kAudioToneHz = 440.0f;
-static const float kAudioClickHz = 2000.0f;
-static const uint32_t kAudioClickMs = 25U;
 static const uint8_t kAudioVolumeMax = 10U;
 static const uint8_t kAudioVolumeDefault = 7U;
-static const uint32_t kAudioFlashPrebufferMin = 1024U;
-static const uint32_t kAudioFlashPrebufferMax = 2048U;
+static const uint32_t kAudioStreamPrebufferMin = 1024U;
+static const uint32_t kAudioStreamPrebufferMax = 2048U;
 
 static const int16_t kImaStepTable[89] =
 {
@@ -104,27 +102,18 @@ static const int8_t kImaIndexTable[16] =
 };
 
 static int16_t s_audio_buf[2048];
-static uint32_t s_phase_q16 = 0U;
-static uint32_t s_phase_step_q16 = 0U;
 static audio_state_t s_audio_state = AUDIO_STATE_IDLE;
-static audio_mode_t s_audio_mode = AUDIO_MODE_NONE;
-static uint32_t s_click_stop_ms = 0U;
-static uint8_t s_click_active = 0U;
-static uint8_t s_click_done = 0U;
-static wav_info_t s_click_wav;
-static uint8_t s_wav_state = 0U;
-static uint32_t s_wav_pos_q16 = 0U;
-static uint32_t s_wav_step_q16 = 0U;
-static wav_info_t s_music_wav;
-static uint8_t s_music_state = 0U;
-static uint8_t s_music_done = 0U;
-static adpcm_state_t s_music_adpcm;
-static wav_info_t s_flash_wav;
-static adpcm_stream_state_t s_flash_adpcm;
-static uint32_t s_flash_bytes_left = 0U;
-static uint8_t s_flash_wait = 0U;
-static uint8_t s_flash_done = 0U;
-static uint32_t s_flash_prebuffer = 0U;
+static audio_voice_t s_sfx_voices[AUDIO_MAX_SFX_VOICES];
+static wav_info_t s_stream_wav;
+static adpcm_stream_state_t s_stream_adpcm;
+static uint32_t s_stream_bytes_left = 0U;
+static uint32_t s_stream_prebuffer = 0U;
+static sound_id_t s_stream_id = SND_COUNT;
+static sound_flags_t s_stream_flags = 0U;
+static uint8_t s_stream_gain_q8 = 0U;
+static uint8_t s_stream_wait = 0U;
+static uint8_t s_stream_done = 0U;
+static uint8_t s_stream_active = 0U;
 static volatile uint8_t s_audio_volume = kAudioVolumeDefault;
 static uint8_t s_audio_power_ref = 0U;
 static uint8_t s_audio_dma_circular = 0U;
@@ -322,103 +311,46 @@ static uint8_t audio_parse_wav(const uint8_t *data, uint32_t len, wav_info_t *ou
   return 0U;
 }
 
-static uint8_t audio_wav_prepare(void)
+static uint8_t audio_stream_prepare(const storage_stream_info_t *info)
 {
-  if (s_wav_state == 1U)
-  {
-    return 1U;
-  }
-  if (s_wav_state == 2U)
+  if (info == NULL)
   {
     return 0U;
   }
 
-  if (audio_parse_wav((const uint8_t *)menuBeep, (uint32_t)sizeof(menuBeep), &s_click_wav) == 0U)
-  {
-    s_wav_state = 2U;
-    return 0U;
-  }
-
-  if (s_click_wav.sample_rate == 0U)
-  {
-    s_wav_state = 2U;
-    return 0U;
-  }
-
-  s_wav_state = 1U;
-  return 1U;
-}
-
-static uint8_t audio_music_prepare(void)
-{
-  if (s_music_state == 1U)
-  {
-    return 1U;
-  }
-  if (s_music_state == 2U)
+  if ((info->format != STORAGE_STREAM_FORMAT_IMA_ADPCM) ||
+      (info->sample_rate != kAudioSampleRate) ||
+      (info->channels != 1U))
   {
     return 0U;
   }
 
-  if (audio_parse_wav((const uint8_t *)musicWav, (uint32_t)sizeof(musicWav), &s_music_wav) == 0U)
-  {
-    s_music_state = 2U;
-    return 0U;
-  }
-
-  if ((s_music_wav.format != WAV_FORMAT_IMA_ADPCM) ||
-      (s_music_wav.sample_rate != kAudioSampleRate) ||
-      (s_music_wav.channels != 1U))
-  {
-    s_music_state = 2U;
-    return 0U;
-  }
-
-  s_music_state = 1U;
-  return 1U;
-}
-
-static uint8_t audio_flash_prepare(void)
-{
-  storage_stream_info_t info;
-  if (!storage_stream_get_info(&info))
-  {
-    return 2U;
-  }
-
-  if ((info.format != STORAGE_STREAM_FORMAT_IMA_ADPCM) ||
-      (info.sample_rate != kAudioSampleRate) ||
-      (info.channels != 1U))
+  if ((info->block_align == 0U) || (info->samples_per_block == 0U))
   {
     return 0U;
   }
 
-  if ((info.block_align == 0U) || (info.samples_per_block == 0U))
-  {
-    return 0U;
-  }
+  s_stream_wav.format = WAV_FORMAT_IMA_ADPCM;
+  s_stream_wav.data = NULL;
+  s_stream_wav.sample_rate = info->sample_rate;
+  s_stream_wav.total_frames = 0U;
+  s_stream_wav.channels = info->channels;
+  s_stream_wav.bits_per_sample = 4U;
+  s_stream_wav.block_align = info->block_align;
+  s_stream_wav.samples_per_block = info->samples_per_block;
+  s_stream_wav.data_bytes = info->data_bytes;
+  s_stream_bytes_left = info->data_bytes;
 
-  s_flash_wav.format = WAV_FORMAT_IMA_ADPCM;
-  s_flash_wav.data = NULL;
-  s_flash_wav.sample_rate = info.sample_rate;
-  s_flash_wav.total_frames = 0U;
-  s_flash_wav.channels = info.channels;
-  s_flash_wav.bits_per_sample = 4U;
-  s_flash_wav.block_align = info.block_align;
-  s_flash_wav.samples_per_block = info.samples_per_block;
-  s_flash_wav.data_bytes = info.data_bytes;
-  s_flash_bytes_left = info.data_bytes;
-
-  uint32_t target = (uint32_t)info.block_align * 2U;
-  if (target < kAudioFlashPrebufferMin)
+  uint32_t target = (uint32_t)info->block_align * 2U;
+  if (target < kAudioStreamPrebufferMin)
   {
-    target = kAudioFlashPrebufferMin;
+    target = kAudioStreamPrebufferMin;
   }
-  if (target > kAudioFlashPrebufferMax)
+  if (target > kAudioStreamPrebufferMax)
   {
-    target = kAudioFlashPrebufferMax;
+    target = kAudioStreamPrebufferMax;
   }
-  s_flash_prebuffer = target;
+  s_stream_prebuffer = target;
   return 1U;
 }
 
@@ -586,7 +518,7 @@ static uint8_t audio_adpcm_stream_next_sample(adpcm_stream_state_t *state, int16
 
   if (state->samples_left == 0U)
   {
-    if (s_flash_bytes_left < s_flash_wav.block_align)
+    if (s_stream_bytes_left < s_stream_wav.block_align)
     {
       if (done != NULL)
       {
@@ -612,11 +544,11 @@ static uint8_t audio_adpcm_stream_next_sample(adpcm_stream_state_t *state, int16
     {
       state->index = 88U;
     }
-    state->samples_left = s_flash_wav.samples_per_block;
-    state->block_bytes_left = (uint16_t)(s_flash_wav.block_align - 4U);
+    state->samples_left = s_stream_wav.samples_per_block;
+    state->block_bytes_left = (uint16_t)(s_stream_wav.block_align - 4U);
     state->nibble_high = 0U;
     state->cur_byte = 0U;
-    s_flash_bytes_left -= s_flash_wav.block_align;
+    s_stream_bytes_left -= s_stream_wav.block_align;
 
     state->samples_left--;
     *out = state->predictor;
@@ -871,128 +803,131 @@ static uint8_t audio_configure_dma_circular(void)
   return 1U;
 }
 
-static void audio_fill(int16_t *dst, uint32_t count)
+static uint8_t audio_has_output(void)
+{
+  if (s_stream_active != 0U)
+  {
+    return 1U;
+  }
+
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if (s_sfx_voices[i].active != 0U)
+    {
+      return 1U;
+    }
+  }
+
+  return 0U;
+}
+
+static uint8_t audio_has_pending(void)
+{
+  return ((audio_has_output() != 0U) || (s_stream_wait != 0U)) ? 1U : 0U;
+}
+
+static void audio_stop_all_sfx(void)
+{
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    s_sfx_voices[i].active = 0U;
+  }
+}
+
+static int32_t audio_scale_sample(int16_t sample, uint8_t gain_q8)
+{
+  return ((int32_t)sample * (int32_t)gain_q8) >> 8;
+}
+
+static uint8_t audio_voice_next_sample(audio_voice_t *voice, int16_t *out)
+{
+  if ((voice == NULL) || (out == NULL) || (voice->active == 0U))
+  {
+    return 0U;
+  }
+
+  if (audio_adpcm_next_sample(&voice->wav, &voice->adpcm, out) != 0U)
+  {
+    return 1U;
+  }
+
+  if ((voice->flags & SOUND_F_LOOP) != 0U)
+  {
+    audio_adpcm_reset(&voice->adpcm);
+    if (audio_adpcm_next_sample(&voice->wav, &voice->adpcm, out) != 0U)
+    {
+      return 1U;
+    }
+  }
+
+  voice->active = 0U;
+  return 0U;
+}
+
+static void audio_mix_fill(int16_t *dst, uint32_t count)
 {
   if ((dst == NULL) || (count == 0U))
   {
     return;
   }
 
-  if (s_audio_mode == AUDIO_MODE_CLICK_WAV)
+  if (audio_has_output() == 0U)
   {
-    if (s_wav_state != 1U)
+    for (uint32_t i = 0U; i < count; ++i)
     {
-      for (uint32_t i = 0U; i < count; ++i)
-      {
-        dst[i] = 0;
-      }
-      s_click_done = 1U;
-      return;
-    }
-
-    uint32_t frames = count / 2U;
-    uint32_t i = 0U;
-    for (; i < frames; ++i)
-    {
-      uint32_t frame = s_wav_pos_q16 >> 16;
-      if (frame >= s_click_wav.total_frames)
-      {
-        s_click_done = 1U;
-        break;
-      }
-
-      int16_t pcm = audio_wav_sample(&s_click_wav, frame);
-      pcm = audio_apply_volume((int32_t)pcm);
-      dst[i * 2U] = pcm;
-      dst[i * 2U + 1U] = pcm;
-      s_wav_pos_q16 += s_wav_step_q16;
-    }
-
-    for (; i < frames; ++i)
-    {
-      dst[i * 2U] = 0;
-      dst[i * 2U + 1U] = 0;
+      dst[i] = 0;
     }
     return;
   }
 
-  if (s_audio_mode == AUDIO_MODE_MUSIC_ADPCM)
+  uint32_t frames = count / 2U;
+  for (uint32_t i = 0U; i < frames; ++i)
   {
-    uint32_t frames = count / 2U;
-    for (uint32_t i = 0U; i < frames; ++i)
-    {
-      int16_t pcm = 0;
-      if (audio_adpcm_next_sample(&s_music_wav, &s_music_adpcm, &pcm) == 0U)
-      {
-        s_music_done = 1U;
-        pcm = 0;
-      }
-      pcm = audio_apply_volume((int32_t)pcm);
-      dst[i * 2U] = pcm;
-      dst[i * 2U + 1U] = pcm;
-    }
-    return;
-  }
+    int32_t mix = 0;
 
-  if (s_audio_mode == AUDIO_MODE_FLASH_ADPCM)
-  {
-    uint32_t frames = count / 2U;
-    for (uint32_t i = 0U; i < frames; ++i)
+    if (s_stream_active != 0U)
     {
       int16_t pcm = 0;
       uint8_t done = 0U;
-      if (audio_adpcm_stream_next_sample(&s_flash_adpcm, &pcm, &done) == 0U)
+      if (audio_adpcm_stream_next_sample(&s_stream_adpcm, &pcm, &done) != 0U)
       {
-        if (done != 0U)
-        {
-          s_flash_done = 1U;
-        }
-        pcm = 0;
+        mix += audio_scale_sample(pcm, s_stream_gain_q8);
       }
-      pcm = audio_apply_volume((int32_t)pcm);
-      dst[i * 2U] = pcm;
-      dst[i * 2U + 1U] = pcm;
+      else if (done != 0U)
+      {
+        s_stream_done = 1U;
+        s_stream_active = 0U;
+      }
     }
-    return;
-  }
 
-  if ((s_audio_mode == AUDIO_MODE_TONE) || (s_audio_mode == AUDIO_MODE_CLICK_TONE))
-  {
-    const float two_pi = 6.28318530718f;
-    uint32_t frames = count / 2U;
-    for (uint32_t i = 0U; i < frames; ++i)
+    for (uint32_t v = 0U; v < AUDIO_MAX_SFX_VOICES; ++v)
     {
-      float phase = (float)(s_phase_q16 & 0xFFFFU) / 65536.0f;
-      float sample = sinf(two_pi * phase);
-      int16_t pcm = (int16_t)(sample * 20000.0f);
-      pcm = audio_apply_volume((int32_t)pcm);
-      dst[i * 2U] = pcm;
-      dst[i * 2U + 1U] = pcm;
-      s_phase_q16 += s_phase_step_q16;
-    }
-    return;
-  }
+      if (s_sfx_voices[v].active == 0U)
+      {
+        continue;
+      }
 
-  for (uint32_t i = 0U; i < count; ++i)
-  {
-    dst[i] = 0;
+      int16_t pcm = 0;
+      if (audio_voice_next_sample(&s_sfx_voices[v], &pcm) != 0U)
+      {
+        mix += audio_scale_sample(pcm, s_sfx_voices[v].gain_q8);
+      }
+    }
+
+    int16_t out = audio_apply_volume(mix);
+    dst[i * 2U] = out;
+    dst[i * 2U + 1U] = out;
   }
 }
 
-static void audio_start(void)
+static void audio_hw_start(void)
 {
   if (s_audio_state == AUDIO_STATE_PLAYING)
   {
     return;
   }
 
-  s_phase_q16 = 0U;
-  s_phase_step_q16 = (uint32_t)((kAudioToneHz * 65536.0f) / (float)kAudioSampleRate);
-  s_click_active = 0U;
-  s_click_done = 0U;
-  s_click_stop_ms = 0U;
-  s_audio_mode = AUDIO_MODE_TONE;
-  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
+  audio_mix_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
 
   (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
   (void)audio_configure_dma_circular();
@@ -1011,222 +946,330 @@ static void audio_start(void)
   }
 }
 
-static void audio_stop(void)
+static void audio_hw_stop(void)
 {
   if (s_audio_state == AUDIO_STATE_IDLE)
   {
     return;
   }
 
-  uint8_t was_flash = (s_audio_mode == AUDIO_MODE_FLASH_ADPCM) || (s_flash_wait != 0U);
-
   (void)HAL_SAI_DMAStop(&hsai_BlockA1);
   HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
   s_audio_state = AUDIO_STATE_IDLE;
-  s_click_active = 0U;
-  s_click_stop_ms = 0U;
-  s_click_done = 0U;
-  s_music_done = 0U;
-  audio_adpcm_reset(&s_music_adpcm);
-  s_flash_done = 0U;
-  s_flash_wait = 0U;
-  s_flash_bytes_left = 0U;
-  s_flash_prebuffer = 0U;
-  audio_adpcm_stream_reset(&s_flash_adpcm);
-  s_audio_mode = AUDIO_MODE_NONE;
   audio_request_power_off();
+}
 
-  if (was_flash != 0U)
+static void audio_update_hw_state(void)
+{
+  if (audio_has_output() != 0U)
+  {
+    if (s_audio_state == AUDIO_STATE_IDLE)
+    {
+      audio_hw_start();
+    }
+    return;
+  }
+
+  audio_hw_stop();
+}
+
+static void audio_stream_stop(void)
+{
+  if ((s_stream_active == 0U) && (s_stream_wait == 0U))
+  {
+    return;
+  }
+
+  s_stream_active = 0U;
+  s_stream_wait = 0U;
+  s_stream_done = 0U;
+  s_stream_bytes_left = 0U;
+  s_stream_prebuffer = 0U;
+  s_stream_id = SND_COUNT;
+  s_stream_flags = 0U;
+  s_stream_gain_q8 = 0U;
+  audio_adpcm_stream_reset(&s_stream_adpcm);
+
+  if (storage_stream_is_active() != 0U)
   {
     (void)storage_request_stream_close();
   }
 }
 
-static void audio_click_start(void)
+static void audio_stream_start(const sound_registry_entry_t *entry, sound_flags_t flags)
 {
-  if (s_audio_state == AUDIO_STATE_PLAYING)
+  if ((entry == NULL) || (entry->path == NULL))
   {
     return;
   }
 
-  s_click_active = 1U;
-  s_click_done = 0U;
-
-  if (audio_wav_prepare() != 0U)
+  if ((s_stream_active != 0U) || (s_stream_wait != 0U))
   {
-    s_audio_mode = AUDIO_MODE_CLICK_WAV;
-    s_wav_pos_q16 = 0U;
-    s_wav_step_q16 = (uint32_t)(((uint64_t)s_click_wav.sample_rate << 16) / kAudioSampleRate);
-    s_click_stop_ms = 0U;
-  }
-  else
-  {
-    s_audio_mode = AUDIO_MODE_CLICK_TONE;
-    s_phase_q16 = 0U;
-    s_phase_step_q16 = (uint32_t)((kAudioClickHz * 65536.0f) / (float)kAudioSampleRate);
-    s_click_stop_ms = osKernelGetTickCount() + kAudioClickMs;
+    if ((s_stream_id == entry->id) && ((flags & SOUND_F_OVERLAP) == 0U))
+    {
+      audio_stream_stop();
+      return;
+    }
+    audio_stream_stop();
   }
 
-  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
-
-  (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
-  (void)audio_configure_dma_circular();
-  audio_request_power_on();
-  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
-
-  if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
-                           (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]))) == HAL_OK)
+  if (!storage_request_stream_open(entry->path))
   {
-    s_audio_state = AUDIO_STATE_PLAYING;
+    return;
   }
-  else
-  {
-    HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
-    s_click_active = 0U;
-    s_click_done = 0U;
-    s_audio_mode = AUDIO_MODE_NONE;
-    audio_request_power_off();
-  }
+
+  s_stream_id = entry->id;
+  s_stream_flags = flags;
+  s_stream_gain_q8 = entry->default_gain_q8;
+  s_stream_wait = 1U;
+  s_stream_done = 0U;
+  s_stream_bytes_left = 0U;
+  s_stream_prebuffer = 0U;
+  audio_adpcm_stream_reset(&s_stream_adpcm);
 }
 
-static void audio_music_start(void)
+static uint8_t audio_stream_try_start(void)
 {
-  if ((s_audio_state == AUDIO_STATE_PLAYING) && (s_audio_mode == AUDIO_MODE_MUSIC_ADPCM))
-  {
-    audio_stop();
-    return;
-  }
-
-  if (s_audio_state == AUDIO_STATE_PLAYING)
-  {
-    audio_stop();
-  }
-
-  if (audio_music_prepare() == 0U)
-  {
-    return;
-  }
-
-  s_music_done = 0U;
-  audio_adpcm_reset(&s_music_adpcm);
-  s_audio_mode = AUDIO_MODE_MUSIC_ADPCM;
-
-  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
-
-  (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
-  (void)audio_configure_dma_circular();
-  audio_request_power_on();
-  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
-
-  if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
-                           (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]))) == HAL_OK)
-  {
-    s_audio_state = AUDIO_STATE_PLAYING;
-  }
-  else
-  {
-    HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
-    s_audio_mode = AUDIO_MODE_NONE;
-    audio_request_power_off();
-  }
-}
-
-static uint8_t audio_flash_try_start(void)
-{
-  if (s_flash_wait == 0U)
+  if (s_stream_wait == 0U)
   {
     return 0U;
   }
 
   if (storage_stream_has_error() != 0U)
   {
-    s_flash_wait = 0U;
-    s_audio_mode = AUDIO_MODE_NONE;
-    (void)storage_request_stream_close();
+    audio_stream_stop();
     return 0U;
   }
 
-  uint8_t prep = audio_flash_prepare();
-  if (prep == 2U)
+  storage_stream_info_t info;
+  if (!storage_stream_get_info(&info))
   {
-    return 0U;
-  }
-  if (prep == 0U)
-  {
-    s_flash_wait = 0U;
-    s_audio_mode = AUDIO_MODE_NONE;
-    (void)storage_request_stream_close();
     return 0U;
   }
 
-  uint32_t prebuffer = (s_flash_prebuffer == 0U) ? kAudioFlashPrebufferMin : s_flash_prebuffer;
+  if (audio_stream_prepare(&info) == 0U)
+  {
+    audio_stream_stop();
+    return 0U;
+  }
+
+  uint32_t prebuffer = (s_stream_prebuffer == 0U) ? kAudioStreamPrebufferMin : s_stream_prebuffer;
   if (storage_stream_available() < prebuffer)
   {
     return 0U;
   }
 
-  s_flash_done = 0U;
-  audio_adpcm_stream_reset(&s_flash_adpcm);
-  s_audio_mode = AUDIO_MODE_FLASH_ADPCM;
-
-  audio_fill(s_audio_buf, (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
-
-  (void)osThreadFlagsClear(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError);
-  (void)audio_configure_dma_circular();
-  audio_request_power_on();
-  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_SET);
-
-  if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
-                           (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]))) == HAL_OK)
-  {
-    s_audio_state = AUDIO_STATE_PLAYING;
-    s_flash_wait = 0U;
-    return 1U;
-  }
-
-  HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
-  s_audio_mode = AUDIO_MODE_NONE;
-  s_flash_wait = 0U;
-  audio_request_power_off();
-  (void)storage_request_stream_close();
-  return 0U;
+  s_stream_active = 1U;
+  s_stream_wait = 0U;
+  s_stream_done = 0U;
+  audio_adpcm_stream_reset(&s_stream_adpcm);
+  audio_update_hw_state();
+  return 1U;
 }
 
-static void audio_flash_start(void)
+static void audio_stream_handle_done(void)
 {
-  if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) &&
-      ((s_audio_state == AUDIO_STATE_PLAYING) || (s_flash_wait != 0U)))
-  {
-    if (s_audio_state == AUDIO_STATE_PLAYING)
-    {
-      audio_stop();
-    }
-    else
-    {
-      s_flash_wait = 0U;
-      s_flash_done = 0U;
-      s_flash_bytes_left = 0U;
-      audio_adpcm_stream_reset(&s_flash_adpcm);
-      s_audio_mode = AUDIO_MODE_NONE;
-      (void)storage_request_stream_close();
-    }
-    return;
-  }
-
-  if (s_audio_state == AUDIO_STATE_PLAYING)
-  {
-    audio_stop();
-  }
-
-  if (!storage_request_stream_open("/music.wav"))
+  if (s_stream_done == 0U)
   {
     return;
   }
 
-  s_flash_wait = 1U;
-  s_flash_done = 0U;
-  s_flash_bytes_left = 0U;
-  s_audio_mode = AUDIO_MODE_FLASH_ADPCM;
+  sound_flags_t flags = s_stream_flags;
+  sound_id_t id = s_stream_id;
+  s_stream_done = 0U;
+
+  if ((flags & SOUND_F_LOOP) != 0U)
+  {
+    const sound_registry_entry_t *entry = sound_registry_get(id);
+    audio_stream_stop();
+    if (entry != NULL)
+    {
+      audio_stream_start(entry, flags);
+    }
+    return;
+  }
+
+  audio_stream_stop();
+}
+
+static void audio_stop_all(void)
+{
+  audio_stop_all_sfx();
+  audio_stream_stop();
+  audio_hw_stop();
+}
+
+static audio_voice_t *audio_find_voice_by_id(sound_id_t id)
+{
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if ((s_sfx_voices[i].active != 0U) && (s_sfx_voices[i].id == id))
+    {
+      return &s_sfx_voices[i];
+    }
+  }
+  return NULL;
+}
+
+static audio_voice_t *audio_find_free_voice(void)
+{
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if (s_sfx_voices[i].active == 0U)
+    {
+      return &s_sfx_voices[i];
+    }
+  }
+  return NULL;
+}
+
+static audio_voice_t *audio_find_lowest_prio_voice(void)
+{
+  audio_voice_t *victim = NULL;
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if (s_sfx_voices[i].active == 0U)
+    {
+      continue;
+    }
+    if (victim == NULL)
+    {
+      victim = &s_sfx_voices[i];
+      continue;
+    }
+    if ((uint8_t)s_sfx_voices[i].prio < (uint8_t)victim->prio)
+    {
+      victim = &s_sfx_voices[i];
+    }
+  }
+  return victim;
+}
+
+static uint8_t audio_voice_start(audio_voice_t *voice, const sound_registry_entry_t *entry,
+                                 sound_prio_t prio, sound_flags_t flags)
+{
+  if ((voice == NULL) || (entry == NULL))
+  {
+    return 0U;
+  }
+
+  const uint8_t *data = NULL;
+  uint32_t data_len = 0U;
+
+  if (entry->source == SOUND_SOURCE_LFS)
+  {
+    if (sound_cache_get(entry->id, &data, &data_len) == 0U)
+    {
+      return 0U;
+    }
+  }
+  else if (entry->source == SOUND_SOURCE_EMBEDDED)
+  {
+    data = entry->embedded;
+    data_len = entry->embedded_len;
+  }
+  else
+  {
+    return 0U;
+  }
+
+  wav_info_t wav;
+  if (audio_parse_wav(data, data_len, &wav) == 0U)
+  {
+    return 0U;
+  }
+
+  if ((wav.format != WAV_FORMAT_IMA_ADPCM) ||
+      (wav.sample_rate != kAudioSampleRate) ||
+      (wav.channels != 1U))
+  {
+    return 0U;
+  }
+
+  voice->active = 1U;
+  voice->id = entry->id;
+  voice->prio = prio;
+  voice->flags = flags;
+  voice->gain_q8 = entry->default_gain_q8;
+  voice->wav = wav;
+  audio_adpcm_reset(&voice->adpcm);
+  return 1U;
+}
+
+static void audio_handle_sfx_play(const sound_registry_entry_t *entry, sound_prio_t prio,
+                                  sound_flags_t flags)
+{
+  if ((flags & SOUND_F_INTERRUPT) != 0U)
+  {
+    audio_stop_all_sfx();
+  }
+
+  if ((flags & SOUND_F_OVERLAP) == 0U)
+  {
+    audio_voice_t *existing = audio_find_voice_by_id(entry->id);
+    if (existing != NULL)
+    {
+      (void)audio_voice_start(existing, entry, prio, flags);
+      return;
+    }
+  }
+
+  audio_voice_t *voice = audio_find_free_voice();
+  if (voice == NULL)
+  {
+    audio_voice_t *victim = audio_find_lowest_prio_voice();
+    if ((victim == NULL) || ((uint8_t)prio <= (uint8_t)victim->prio))
+    {
+      return;
+    }
+    voice = victim;
+  }
+
+  (void)audio_voice_start(voice, entry, prio, flags);
+}
+
+static void audio_handle_play(sound_id_t id, sound_prio_t prio, sound_flags_t flags)
+{
+  const sound_registry_entry_t *entry = sound_registry_get(id);
+  if (entry == NULL)
+  {
+    return;
+  }
+
+  sound_flags_t effective_flags = (sound_flags_t)(entry->flags | flags);
+
+  if ((power_task_is_sleepface_active() != 0U) &&
+      ((effective_flags & SOUND_F_ALLOW_SLEEPFACE) == 0U))
+  {
+    return;
+  }
+
+  if ((entry->source == SOUND_SOURCE_LFS) && ((effective_flags & SOUND_F_STREAM) != 0U))
+  {
+    audio_stream_start(entry, effective_flags);
+    return;
+  }
+
+  audio_handle_sfx_play(entry, prio, effective_flags);
+}
+
+static void audio_handle_stop(sound_id_t id)
+{
+  if ((s_stream_active != 0U) || (s_stream_wait != 0U))
+  {
+    if (s_stream_id == id)
+    {
+      audio_stream_stop();
+    }
+  }
+
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if ((s_sfx_voices[i].active != 0U) && (s_sfx_voices[i].id == id))
+    {
+      s_sfx_voices[i].active = 0U;
+    }
+  }
 }
 
 void audio_task_run(void)
@@ -1237,17 +1280,13 @@ void audio_task_run(void)
   {
     if (power_task_is_quiescing() != 0U)
     {
-      if (audio_is_active() == 0U)
+      if (audio_has_pending() == 0U)
       {
-        HAL_GPIO_WritePin(SD_MODE_GPIO_Port, SD_MODE_Pin, GPIO_PIN_RESET);
-        if (storage_stream_is_active() != 0U)
-        {
-          (void)storage_request_stream_close();
-        }
+        audio_hw_stop();
+        audio_stream_stop();
         power_task_quiesce_ack(POWER_QUIESCE_ACK_AUDIO);
         while (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, 0U) == osOK)
         {
-          /* discard queued audio commands while quiescing */
         }
         osDelay(5U);
         continue;
@@ -1258,63 +1297,26 @@ void audio_task_run(void)
     {
       power_task_quiesce_clear(POWER_QUIESCE_ACK_AUDIO);
     }
-    if ((s_audio_state == AUDIO_STATE_IDLE) &&
-        (s_audio_mode == AUDIO_MODE_NONE) &&
-        (storage_stream_is_active() != 0U))
+
+    if ((s_stream_active == 0U) && (s_stream_wait == 0U) && (storage_stream_is_active() != 0U))
     {
       (void)storage_request_stream_close();
     }
 
     if (s_audio_state == AUDIO_STATE_PLAYING)
     {
-      if ((s_audio_mode == AUDIO_MODE_MUSIC_ADPCM) && (s_music_done != 0U))
-      {
-        audio_stop();
-        continue;
-      }
-      if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) && (s_flash_done != 0U))
-      {
-        audio_stop();
-        continue;
-      }
-      if ((s_audio_mode == AUDIO_MODE_FLASH_ADPCM) && (storage_stream_has_error() != 0U))
-      {
-        audio_stop();
-        continue;
-      }
-      if (s_click_active != 0U)
-      {
-        if (s_audio_mode == AUDIO_MODE_CLICK_WAV)
-        {
-          if (s_click_done != 0U)
-          {
-            audio_stop();
-            continue;
-          }
-        }
-        else
-        {
-          uint32_t now_ms = osKernelGetTickCount();
-          if ((int32_t)(now_ms - s_click_stop_ms) >= 0)
-          {
-            audio_stop();
-            continue;
-          }
-        }
-      }
-
       int32_t flags = (int32_t)osThreadFlagsWait(kAudioFlagHalf | kAudioFlagFull | kAudioFlagError,
                                                  osFlagsWaitAny, 20U);
       if (flags >= 0)
       {
+        uint32_t half_count = (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U);
         if (((uint32_t)flags & kAudioFlagHalf) != 0U)
         {
-          audio_fill(&s_audio_buf[0], (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U));
+          audio_mix_fill(&s_audio_buf[0], half_count);
         }
         if (((uint32_t)flags & kAudioFlagFull) != 0U)
         {
-          audio_fill(&s_audio_buf[sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U],
-                     (uint32_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0]) / 2U));
+          audio_mix_fill(&s_audio_buf[half_count], half_count);
           if (s_audio_dma_circular == 0U)
           {
             (void)HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
@@ -1323,7 +1325,7 @@ void audio_task_run(void)
         }
         if (((uint32_t)flags & kAudioFlagError) != 0U)
         {
-          audio_stop();
+          audio_stop_all();
         }
       }
       else if ((s_audio_dma_circular == 0U) && (hsai_BlockA1.State == HAL_SAI_STATE_READY))
@@ -1331,6 +1333,15 @@ void audio_task_run(void)
         (void)HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)s_audio_buf,
                                    (uint16_t)(sizeof(s_audio_buf) / sizeof(s_audio_buf[0])));
       }
+
+      if ((s_stream_active != 0U) && (storage_stream_has_error() != 0U))
+      {
+        audio_stream_stop();
+      }
+
+      audio_stream_handle_done();
+      audio_update_hw_state();
+
       if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, 0U) != osOK)
       {
         continue;
@@ -1338,49 +1349,57 @@ void audio_task_run(void)
     }
     else
     {
-      if (audio_flash_try_start() != 0U)
+      if (audio_stream_try_start() != 0U)
       {
         continue;
       }
 
-      uint32_t timeout = (s_flash_wait != 0U) ? 20U : osWaitForever;
+      uint32_t timeout = (s_stream_wait != 0U) ? 20U : osWaitForever;
       if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, timeout) != osOK)
       {
-        if (s_flash_wait != 0U)
+        if (s_stream_wait != 0U)
         {
-          (void)audio_flash_try_start();
+          (void)audio_stream_try_start();
         }
         continue;
       }
     }
 
-    switch (cmd)
+    if ((cmd & SOUND_CMD_FLAG) != 0U)
     {
-      case APP_AUDIO_CMD_TOGGLE_TONE:
-        if (s_audio_state == AUDIO_STATE_PLAYING)
-        {
-          audio_stop();
-        }
-        else
-        {
-          audio_start();
-        }
-        break;
-      case APP_AUDIO_CMD_STOP:
-        audio_stop();
-        break;
-      case APP_AUDIO_CMD_KEYCLICK:
-        audio_click_start();
-        break;
-      case APP_AUDIO_CMD_MUSIC_TOGGLE:
-        audio_music_start();
-        break;
-      case APP_AUDIO_CMD_FLASH_TOGGLE:
-        audio_flash_start();
-        break;
-      default:
-        break;
+      if (SOUND_CMD_IS(cmd, SOUND_CMD_TYPE_PLAY))
+      {
+        audio_handle_play(SOUND_CMD_GET_ID(cmd), SOUND_CMD_GET_PRIO(cmd), SOUND_CMD_GET_FLAGS(cmd));
+      }
+      else if (SOUND_CMD_IS(cmd, SOUND_CMD_TYPE_STOP))
+      {
+        audio_handle_stop(SOUND_CMD_GET_ID(cmd));
+      }
+      else if (SOUND_CMD_IS(cmd, SOUND_CMD_TYPE_STOP_ALL))
+      {
+        audio_stop_all();
+      }
     }
+    else
+    {
+      switch (cmd)
+      {
+        case APP_AUDIO_CMD_STOP:
+          audio_stop_all();
+          break;
+        case APP_AUDIO_CMD_KEYCLICK:
+          audio_handle_play(SND_UI_CLICK, SOUND_PRIO_UI, 0U);
+          break;
+        case APP_AUDIO_CMD_MUSIC_TOGGLE:
+        case APP_AUDIO_CMD_FLASH_TOGGLE:
+          audio_handle_play(SND_MUSIC_1, SOUND_PRIO_MUSIC, 0U);
+          break;
+        default:
+          break;
+      }
+    }
+
+    audio_update_hw_state();
   }
 }
 
@@ -1425,5 +1444,5 @@ uint8_t audio_get_volume(void)
 
 uint8_t audio_is_active(void)
 {
-  return ((s_audio_state == AUDIO_STATE_PLAYING) || (s_flash_wait != 0U)) ? 1U : 0U;
+  return audio_has_pending();
 }

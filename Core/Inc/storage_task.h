@@ -36,7 +36,8 @@ typedef enum
   STORAGE_OP_STREAM_READ = 13,
   STORAGE_OP_STREAM_TEST = 14,
   STORAGE_OP_STREAM_OPEN = 15,
-  STORAGE_OP_STREAM_CLOSE = 16
+  STORAGE_OP_STREAM_CLOSE = 16,
+  STORAGE_OP_AUDIO_LIST = 17
 } storage_op_t;
 
 typedef enum
@@ -54,6 +55,15 @@ typedef struct
   uint16_t block_align;
   uint16_t samples_per_block;
 } storage_stream_info_t;
+
+#define STORAGE_AUDIO_NAME_MAX 32U
+#define STORAGE_AUDIO_LIST_MAX 16U
+
+typedef struct
+{
+  char name[STORAGE_AUDIO_NAME_MAX];
+  uint32_t size;
+} storage_audio_entry_t;
 
 typedef struct
 {
@@ -86,6 +96,7 @@ bool storage_request_stream_read(const char *path);
 bool storage_request_stream_test(void);
 bool storage_request_stream_open(const char *path);
 bool storage_request_stream_close(void);
+bool storage_request_audio_list(void);
 
 bool storage_stream_get_info(storage_stream_info_t *out);
 uint8_t storage_stream_is_active(void);
@@ -93,6 +104,10 @@ uint8_t storage_stream_has_error(void);
 uint32_t storage_stream_available(void);
 uint32_t storage_stream_read(uint8_t *dst, uint32_t len);
 uint8_t storage_is_busy(void);
+uint32_t storage_audio_list_count(void);
+uint32_t storage_audio_list_seq(void);
+uint8_t storage_audio_list_get(uint32_t index, storage_audio_entry_t *out);
+void storage_set_seed_audio_on_boot(uint8_t enable);
 
 #ifdef __cplusplus
 }
