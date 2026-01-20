@@ -13,6 +13,18 @@ static uint8_t s_has_last = 0U;
 static uint8_t s_audio_index = 0U;
 static uint8_t s_audio_scroll = 0U;
 static uint32_t s_audio_seq_last = 0U;
+static uint8_t s_storage_action = 0U;
+static uint8_t s_storage_action_confirm = 0U;
+
+enum
+{
+  STORAGE_ACTION_REMOUNT = 0,
+  STORAGE_ACTION_LIST = 1,
+  STORAGE_ACTION_TEST = 2,
+  STORAGE_ACTION_FORMAT_AUDIO = 3,
+  STORAGE_ACTION_FORMAT_ALL = 4,
+  STORAGE_ACTION_COUNT = 5
+};
 
 static uint16_t ui_text_width(const char *text)
 {
@@ -77,6 +89,29 @@ static const char *storage_op_label(storage_op_t op)
       return "SCLOSE";
     case STORAGE_OP_AUDIO_LIST:
       return "ALIST";
+    case STORAGE_OP_FORMAT_AUDIO:
+      return "F-AUD";
+    case STORAGE_OP_FORMAT_ALL:
+      return "F-ALL";
+    default:
+      return "NONE";
+  }
+}
+
+static const char *storage_action_label(uint8_t action)
+{
+  switch (action)
+  {
+    case STORAGE_ACTION_REMOUNT:
+      return "REMOUNT";
+    case STORAGE_ACTION_LIST:
+      return "LIST";
+    case STORAGE_ACTION_TEST:
+      return "TEST";
+    case STORAGE_ACTION_FORMAT_AUDIO:
+      return "FMT AUDIO";
+    case STORAGE_ACTION_FORMAT_ALL:
+      return "FMT ALL";
     default:
       return "NONE";
   }
@@ -86,6 +121,41 @@ static void format_kb(char *dst, size_t dst_len, uint32_t bytes)
 {
   uint32_t kb = (bytes + 512U) / 1024U;
   (void)snprintf(dst, dst_len, "%luKB", (unsigned long)kb);
+}
+
+static uint16_t ui_max_chars(uint16_t x)
+{
+  uint16_t width = renderGetWidth();
+  uint16_t avail = (width > x) ? (uint16_t)(width - x) : width;
+  uint16_t char_w = (uint16_t)(FONT8X8_WIDTH + 1U);
+  uint16_t max_chars = (char_w > 0U) ? (uint16_t)(avail / char_w) : 0U;
+  return (max_chars == 0U) ? 1U : max_chars;
+}
+
+static void ui_truncate_line(char *line, uint16_t max_chars)
+{
+  if (line == NULL)
+  {
+    return;
+  }
+
+  size_t len = strlen(line);
+  if (len <= max_chars)
+  {
+    return;
+  }
+
+  if (max_chars <= 3U)
+  {
+    line[max_chars - 1U] = '.';
+    line[max_chars] = '\0';
+    return;
+  }
+
+  line[max_chars - 3U] = '.';
+  line[max_chars - 2U] = '.';
+  line[max_chars - 1U] = '.';
+  line[max_chars] = '\0';
 }
 
 static void storage_audio_list_adjust_scroll(uint32_t count, uint16_t rows)
@@ -120,31 +190,74 @@ static void storage_audio_list_adjust_scroll(uint32_t count, uint16_t rows)
 static void page_storage_info_enter(void)
 {
   s_has_last = 0U;
+  s_storage_action = STORAGE_ACTION_REMOUNT;
+  s_storage_action_confirm = 0U;
 }
 
 static uint32_t page_storage_info_event(ui_evt_t evt)
 {
   if (evt == UI_EVT_BACK)
   {
+    if (s_storage_action_confirm != 0U)
+    {
+      s_storage_action_confirm = 0U;
+      return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
+    }
     return UI_PAGE_EVENT_BACK;
+  }
+
+  if ((evt == UI_EVT_DEC) || (evt == UI_EVT_NAV_LEFT))
+  {
+    s_storage_action = (s_storage_action == 0U)
+                         ? (uint8_t)(STORAGE_ACTION_COUNT - 1U)
+                         : (uint8_t)(s_storage_action - 1U);
+    s_storage_action_confirm = 0U;
+    return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
+  }
+
+  if ((evt == UI_EVT_INC) || (evt == UI_EVT_NAV_RIGHT))
+  {
+    s_storage_action = (uint8_t)((s_storage_action + 1U) % STORAGE_ACTION_COUNT);
+    s_storage_action_confirm = 0U;
+    return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
   }
 
   if (evt == UI_EVT_SELECT)
   {
-    (void)storage_request_remount();
-    return UI_PAGE_EVENT_NONE;
-  }
+    if ((s_storage_action == STORAGE_ACTION_FORMAT_AUDIO) ||
+        (s_storage_action == STORAGE_ACTION_FORMAT_ALL))
+    {
+      if (s_storage_action_confirm == 0U)
+      {
+        s_storage_action_confirm = 1U;
+        return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
+      }
+      s_storage_action_confirm = 0U;
+      if (s_storage_action == STORAGE_ACTION_FORMAT_AUDIO)
+      {
+        (void)storage_request_format_audio();
+      }
+      else
+      {
+        (void)storage_request_format_all();
+      }
+      return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
+    }
 
-  if (evt == UI_EVT_DEC)
-  {
-    (void)storage_request_test();
-    return UI_PAGE_EVENT_NONE;
-  }
-
-  if (evt == UI_EVT_INC)
-  {
-    (void)storage_request_list("/");
-    return UI_PAGE_EVENT_NONE;
+    s_storage_action_confirm = 0U;
+    if (s_storage_action == STORAGE_ACTION_REMOUNT)
+    {
+      (void)storage_request_remount();
+    }
+    else if (s_storage_action == STORAGE_ACTION_LIST)
+    {
+      (void)storage_request_list("/");
+    }
+    else if (s_storage_action == STORAGE_ACTION_TEST)
+    {
+      (void)storage_request_test();
+    }
+    return UI_PAGE_EVENT_HANDLED;
   }
 
   if (evt == UI_EVT_TICK)
@@ -198,7 +311,7 @@ static uint32_t page_storage_audio_event(ui_evt_t evt)
       {
         s_audio_index = (uint8_t)((s_audio_index + 1U) % count);
       }
-      return UI_PAGE_EVENT_RENDER;
+      return (UI_PAGE_EVENT_RENDER | UI_PAGE_EVENT_HANDLED);
     }
   }
   else if (evt == UI_EVT_SELECT)
@@ -213,13 +326,14 @@ static uint32_t page_storage_audio_event(ui_evt_t evt)
       {
         sound_play(sound->id);
       }
+      return UI_PAGE_EVENT_HANDLED;
     }
     return UI_PAGE_EVENT_NONE;
   }
   else if ((evt == UI_EVT_DEC) || (evt == UI_EVT_INC))
   {
     (void)storage_request_audio_list();
-    return UI_PAGE_EVENT_NONE;
+    return UI_PAGE_EVENT_HANDLED;
   }
 
   if (evt == UI_EVT_TICK)
@@ -291,18 +405,16 @@ static void page_storage_render_info(void)
   renderDrawText(4U, y, line, RENDER_LAYER_UI, RENDER_STATE_BLACK);
   y = (uint16_t)(y + step);
 
-  if (status.stats_valid == 0U)
+  const char *action = storage_action_label(s_storage_action);
+  if (((s_storage_action == STORAGE_ACTION_FORMAT_AUDIO) ||
+       (s_storage_action == STORAGE_ACTION_FORMAT_ALL)) &&
+      (s_storage_action_confirm != 0U))
   {
-    (void)snprintf(line, sizeof(line), "Music: N/A");
-  }
-  else if (status.music_present != 0U)
-  {
-    format_kb(size_buf, sizeof(size_buf), status.music_size);
-    (void)snprintf(line, sizeof(line), "Music: %s", size_buf);
+    (void)snprintf(line, sizeof(line), "Action: %s?", action);
   }
   else
   {
-    (void)snprintf(line, sizeof(line), "Music: none");
+    (void)snprintf(line, sizeof(line), "Action: %s", action);
   }
   renderDrawText(4U, y, line, RENDER_LAYER_UI, RENDER_STATE_BLACK);
   y = (uint16_t)(y + step);
@@ -322,9 +434,20 @@ static void page_storage_render_info(void)
   if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
   {
     uint16_t hint_y = (uint16_t)(height - (FONT8X8_HEIGHT * 2U + 4U));
-    renderDrawText(4U, hint_y, "L: TEST  R: LIST", RENDER_LAYER_UI, RENDER_STATE_BLACK);
-    renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
-                   "A: REMOUNT  B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    renderDrawText(4U, hint_y, "L/R: ACTION  A: RUN",
+                   RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    if (((s_storage_action == STORAGE_ACTION_FORMAT_AUDIO) ||
+         (s_storage_action == STORAGE_ACTION_FORMAT_ALL)) &&
+        (s_storage_action_confirm != 0U))
+    {
+      renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
+                     "A: CONFIRM  B: CANCEL", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    }
+    else
+    {
+      renderDrawText(4U, (uint16_t)(hint_y + FONT8X8_HEIGHT + 2U),
+                     "B: BACK", RENDER_LAYER_UI, RENDER_STATE_BLACK);
+    }
   }
 }
 
@@ -336,6 +459,7 @@ static void page_storage_render_audio(void)
   uint16_t top = (uint16_t)(FONT8X8_HEIGHT + 8U);
   uint16_t line_step = (uint16_t)(FONT8X8_HEIGHT + 2U);
   uint16_t height = renderGetHeight();
+  uint16_t max_chars = ui_max_chars(4U);
   uint16_t bottom_reserved = 0U;
   if (height > (uint16_t)(FONT8X8_HEIGHT + 6U))
   {
@@ -391,6 +515,7 @@ static void page_storage_render_audio(void)
           (void)snprintf(&line[len], sizeof(line) - len, " NR");
         }
       }
+      ui_truncate_line(line, max_chars);
 
       uint16_t y = (uint16_t)(top + (row * line_step));
       bool selected = (idx == s_audio_index);

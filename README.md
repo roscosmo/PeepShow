@@ -816,7 +816,7 @@ Implementation notes (Phase 6 audio):
 - SAI TX DMA uses a GPDMA linked-list circular node configured in `Core/Src/audio_task.c` to avoid rearm gaps on long playback.
 - Sound definitions live in `Core/Src/sound_manager.c` (ID, name, format, path, default gain/flags). UI/game code only uses IDs.
 - SFX playback supports up to 5 concurrent voices mixed into one output buffer; higher-priority sounds can steal lower-priority ones.
-- Streamed music is a single concurrent stream from `/audio/music.wav` (IMA ADPCM, 16 kHz).
+- Streamed music is a single concurrent stream from `/audio/` (IMA ADPCM, 16 kHz), selected via the sound registry (for example `SND_MUSIC_MEGAMAN`).
 - SD_MODE is driven high on start and low on stop/error; GPIO init sets it low at boot in `Core/Src/main.c`.
 - `tskAudio` posts AUDIO_ON/OFF sys events; `tskPower` tracks `audio_ref` and `debug_ref` and updates `egDebug`.
 - PLL2 gating is deferred: refcounts are tracked, but PLL2 remains always on for now.
@@ -829,9 +829,9 @@ Goal: stable streaming independent of SYSCLK.
 - [x] Implement stream_ref in tskPower
 - [x] tskStorage requests STREAM_ON before sustained streaming
 - [x] Enforce: no OCTOSPI clock switching during streaming
-- [x] Stream `/music.wav` from littlefs into tskAudio (IMA ADPCM) with a ring buffer
+- [x] Stream `/audio/*.wav` from littlefs into tskAudio (IMA ADPCM) with a ring buffer (one stream at a time)
 - [x] Stress: stream + display + UI together
-- [x] Shared buffer: allow muliple concurrent sounds
+- [x] Shared buffer: allow multiple concurrent sounds
 
 Acceptance:
 - Streaming does not stall UI/game
@@ -840,12 +840,13 @@ Acceptance:
 
 Implementation notes (Phase 7 streaming):
 - `tskPower` tracks `stream_ref` via APP_SYS_EVENT_STREAM_ON/OFF.
-- `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/audio/music.wav`.
+- `tskStorage` exposes a streaming service with a 4 KB ring buffer plus `STORAGE_OP_STREAM_OPEN/CLOSE` for `/audio/` paths (active stream path comes from the sound registry).
 - `tskAudio` pulls stream bytes and decodes IMA ADPCM on the fly; music is a single stream that can loop.
 - `STORAGE_OP_STREAM_TEST` remains as a stress read (currently not triggered from UI/game).
 - To avoid underruns under render load, `tskStorage` refills in a short loop and temporarily boosts priority during streaming; `tskAudio` waits for a small prebuffer before starting DMA.
+- First stream start may have a small delay for open/prebuffer; `tskAudio` retries stream open for a short window if storage is busy.
 - PLL2 stays always-on for now; any future OCTOSPI clock changes must check `stream_ref` before switching.
-- Audio assets live in `Assets/audio/` and are placed on external flash under `/audio/`.
+- Audio assets live in `Assets/audio/` and are placed on external flash under `/audio/` with filenames preserved.
 - Manual seeding: set `kSeedAudioOnBoot` in `Core/Src/main.c` to write embedded WAVs to `/audio/` once, then set it back to 0.
 
 ---

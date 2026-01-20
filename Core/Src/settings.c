@@ -51,6 +51,9 @@ typedef struct
   float menu_axis_ratio;
   uint8_t keyclick_enabled;
   uint8_t volume;
+  uint8_t volume_ui;
+  uint8_t volume_sfx;
+  uint8_t volume_music;
   uint8_t sleep_enabled;
   uint8_t sleep_allow_game;
   uint32_t sleep_timeout_ms;
@@ -265,6 +268,36 @@ static const settings_registry_entry_t k_registry[] =
     .offset = (uint16_t)offsetof(settings_data_t, volume),
     .size = (uint16_t)sizeof(uint8_t),
     .def.u8 = 7U,
+    .min.u8 = 0U,
+    .max.u8 = 10U,
+    .def_bytes = NULL
+  },
+  {
+    .key = SETTINGS_KEY_VOLUME_UI,
+    .type = SETTINGS_TYPE_U8,
+    .offset = (uint16_t)offsetof(settings_data_t, volume_ui),
+    .size = (uint16_t)sizeof(uint8_t),
+    .def.u8 = 5U,
+    .min.u8 = 0U,
+    .max.u8 = 10U,
+    .def_bytes = NULL
+  },
+  {
+    .key = SETTINGS_KEY_VOLUME_SFX,
+    .type = SETTINGS_TYPE_U8,
+    .offset = (uint16_t)offsetof(settings_data_t, volume_sfx),
+    .size = (uint16_t)sizeof(uint8_t),
+    .def.u8 = 5U,
+    .min.u8 = 0U,
+    .max.u8 = 10U,
+    .def_bytes = NULL
+  },
+  {
+    .key = SETTINGS_KEY_VOLUME_MUSIC,
+    .type = SETTINGS_TYPE_U8,
+    .offset = (uint16_t)offsetof(settings_data_t, volume_music),
+    .size = (uint16_t)sizeof(uint8_t),
+    .def.u8 = 5U,
     .min.u8 = 0U,
     .max.u8 = 10U,
     .def_bytes = NULL

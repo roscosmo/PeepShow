@@ -10,6 +10,7 @@
 #include "power_task.h"
 
 #include <string.h>
+#include <stdio.h>
 
 extern OSPI_HandleTypeDef hospi1;
 
@@ -95,7 +96,7 @@ static const char k_test_path[] = "/test.txt";
 static const uint8_t k_test_data[] = "PeepShow littlefs test\n";
 static const char k_settings_path[] = SETTINGS_PATH;
 static const char k_settings_tmp_path[] = SETTINGS_PATH_TMP;
-static const char k_stream_path[] = "/audio/music.wav";
+static const char k_stream_path[] = "/audio/GAME_music_megaman.wav";
 
 static uint32_t storage_read_u32_le(const uint8_t *data)
 {
@@ -114,6 +115,11 @@ static void storage_cache_audio_assets(void);
 static int storage_seed_audio_assets(uint8_t overwrite);
 static int storage_write_asset_file(const char *path, const uint8_t *data, uint32_t len);
 static int storage_audio_list_update(void);
+static int storage_format_audio(void);
+static int storage_format_all(void);
+static int storage_unmount(void);
+static void storage_load_settings(void);
+static int flash_release_dpd(void);
 
 static void storage_status_update(storage_op_t op, int32_t err, uint32_t value)
 {
@@ -754,6 +760,113 @@ static int storage_audio_list_update(void)
 
   s_audio_list_seq++;
   return result;
+}
+
+static int storage_format_audio(void)
+{
+  storage_stream_close_file();
+
+  lfs_dir_t dir;
+  struct lfs_info info;
+  int res = lfs_dir_open(&s_lfs, &dir, "/audio");
+  if (res < 0)
+  {
+    if (res == LFS_ERR_NOENT)
+    {
+      int mk = lfs_mkdir(&s_lfs, "/audio");
+      if (mk == LFS_ERR_EXIST)
+      {
+        mk = 0;
+      }
+      storage_cache_audio_assets();
+      (void)storage_audio_list_update();
+      return mk;
+    }
+    return res;
+  }
+
+  int result = 0;
+  while ((res = lfs_dir_read(&s_lfs, &dir, &info)) > 0)
+  {
+    if ((strcmp(info.name, ".") == 0) || (strcmp(info.name, "..") == 0))
+    {
+      continue;
+    }
+    if (info.type != LFS_TYPE_REG)
+    {
+      continue;
+    }
+
+    char path[STORAGE_PATH_MAX];
+    (void)snprintf(path, sizeof(path), "/audio/%s", info.name);
+    int del_res = lfs_remove(&s_lfs, path);
+    if ((del_res < 0) && (result == 0))
+    {
+      result = del_res;
+    }
+  }
+
+  int close_res = lfs_dir_close(&s_lfs, &dir);
+  if ((res < 0) && (result == 0))
+  {
+    result = res;
+  }
+  if ((close_res < 0) && (result == 0))
+  {
+    result = close_res;
+  }
+
+  storage_cache_audio_assets();
+  (void)storage_audio_list_update();
+  return result;
+}
+
+static int storage_format_all(void)
+{
+  storage_stream_close_file();
+  (void)storage_unmount();
+
+  if (flash_release_dpd() != 0)
+  {
+    s_mounted = 0U;
+    s_status.mount_state = STORAGE_MOUNT_ERROR;
+    return LFS_ERR_IO;
+  }
+
+  int res = lfs_format(&s_lfs, &s_cfg);
+  if (res != 0)
+  {
+    s_mounted = 0U;
+    s_status.mount_state = STORAGE_MOUNT_ERROR;
+    return res;
+  }
+
+  res = lfs_mount(&s_lfs, &s_cfg);
+  if (res == 0)
+  {
+    s_mounted = 1U;
+    s_status.mount_state = STORAGE_MOUNT_MOUNTED;
+    settings_reset_defaults();
+    settings_mark_loaded();
+    int mk = lfs_mkdir(&s_lfs, "/audio");
+    if (mk == LFS_ERR_EXIST)
+    {
+      mk = 0;
+    }
+    if (mk != 0)
+    {
+      res = mk;
+    }
+    storage_cache_audio_assets();
+    (void)storage_audio_list_update();
+  }
+  else
+  {
+    s_mounted = 0U;
+    s_status.mount_state = STORAGE_MOUNT_ERROR;
+  }
+
+  return res;
 }
 
 static void flash_cmd_init(OSPI_RegularCmdTypeDef *cmd)
@@ -1440,7 +1553,8 @@ static const char *storage_request_path(const char *fallback)
 static void storage_handle_request(storage_op_t op)
 {
   if ((op != STORAGE_OP_MOUNT) && (op != STORAGE_OP_REMOUNT) &&
-      (op != STORAGE_OP_DPD_ENTER) && (op != STORAGE_OP_DPD_EXIT))
+      (op != STORAGE_OP_DPD_ENTER) && (op != STORAGE_OP_DPD_EXIT) &&
+      (op != STORAGE_OP_FORMAT_ALL))
   {
     if (s_mounted == 0U)
     {
@@ -1569,6 +1683,18 @@ static void storage_handle_request(storage_op_t op)
     {
       int res = flash_release_dpd();
       storage_status_update(STORAGE_OP_DPD_EXIT, (res == 0) ? 0 : LFS_ERR_IO, 0U);
+      break;
+    }
+    case STORAGE_OP_FORMAT_AUDIO:
+    {
+      int res = storage_format_audio();
+      storage_status_update(STORAGE_OP_FORMAT_AUDIO, res, 0U);
+      break;
+    }
+    case STORAGE_OP_FORMAT_ALL:
+    {
+      int res = storage_format_all();
+      storage_status_update(STORAGE_OP_FORMAT_ALL, res, 0U);
       break;
     }
     default:
@@ -1832,6 +1958,16 @@ bool storage_request_stream_close(void)
 bool storage_request_audio_list(void)
 {
   return storage_request_submit(STORAGE_OP_AUDIO_LIST, "/audio", NULL, 0U);
+}
+
+bool storage_request_format_audio(void)
+{
+  return storage_request_submit(STORAGE_OP_FORMAT_AUDIO, NULL, NULL, 0U);
+}
+
+bool storage_request_format_all(void)
+{
+  return storage_request_submit(STORAGE_OP_FORMAT_ALL, NULL, NULL, 0U);
 }
 
 uint32_t storage_audio_list_count(void)

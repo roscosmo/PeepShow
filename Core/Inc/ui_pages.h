@@ -24,6 +24,7 @@ typedef enum
 #define UI_PAGE_EVENT_NONE   (0U)
 #define UI_PAGE_EVENT_RENDER (1U << 0U)
 #define UI_PAGE_EVENT_BACK   (1U << 1U)
+#define UI_PAGE_EVENT_HANDLED (1U << 2U)
 
 #define UI_PAGE_FLAG_JOY_MENU    (1U << 0U)
 #define UI_PAGE_FLAG_JOY_MONITOR (1U << 1U)

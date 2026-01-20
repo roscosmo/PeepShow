@@ -5,52 +5,103 @@
 
 #include <string.h>
 
-static uint8_t s_cache_keybeep[8192];
-static uint8_t s_cache_ghost[8192];
+static uint8_t s_cache_ui_move[11394];
+static uint8_t s_cache_ui_confirm[11394];
+static uint8_t s_cache_ui_decline[11394];
+static uint8_t s_cache_ui_denied[11394];
+static uint8_t s_cache_game_ghost[6238];
 
 static const sound_registry_entry_t s_registry[] =
 {
   {
-    .id = SND_UI_CLICK,
-    .name = "UI click",
+    .id = SND_UI_MOVE,
+    .name = "UI Move",
     .format = SOUND_FORMAT_IMA_ADPCM,
     .source = SOUND_SOURCE_LFS,
-    .path = "/audio/keyBeep.wav",
+    .path = "/audio/UI_Move.wav",
     .embedded = NULL,
     .embedded_len = 0U,
     .default_gain_q8 = 255U,
     .flags = SOUND_F_OVERLAP,
     .default_prio = SOUND_PRIO_UI,
-    .cache = s_cache_keybeep,
-    .cache_max = (uint32_t)sizeof(s_cache_keybeep)
+    .category = SOUND_CAT_UI,
+    .cache = s_cache_ui_move,
+    .cache_max = (uint32_t)sizeof(s_cache_ui_move)
   },
   {
-    .id = SND_MUSIC_1,
-    .name = "Music 1",
+    .id = SND_UI_CONFIRM,
+    .name = "UI Confirm",
     .format = SOUND_FORMAT_IMA_ADPCM,
     .source = SOUND_SOURCE_LFS,
-    .path = "/audio/music.wav",
+    .path = "/audio/UI_Confirm.wav",
     .embedded = NULL,
     .embedded_len = 0U,
     .default_gain_q8 = 255U,
-    .flags = (sound_flags_t)(SOUND_F_STREAM | SOUND_F_LOOP),
-    .default_prio = SOUND_PRIO_MUSIC,
-    .cache = NULL,
-    .cache_max = 0U
+    .flags = SOUND_F_OVERLAP,
+    .default_prio = SOUND_PRIO_UI,
+    .category = SOUND_CAT_UI,
+    .cache = s_cache_ui_confirm,
+    .cache_max = (uint32_t)sizeof(s_cache_ui_confirm)
   },
   {
-    .id = SND_GHOST,
-    .name = "Ghost",
+    .id = SND_UI_DECLINE,
+    .name = "UI Decline",
     .format = SOUND_FORMAT_IMA_ADPCM,
     .source = SOUND_SOURCE_LFS,
-    .path = "/audio/ghost.wav",
+    .path = "/audio/UI_Decline.wav",
+    .embedded = NULL,
+    .embedded_len = 0U,
+    .default_gain_q8 = 255U,
+    .flags = SOUND_F_OVERLAP,
+    .default_prio = SOUND_PRIO_UI,
+    .category = SOUND_CAT_UI,
+    .cache = s_cache_ui_decline,
+    .cache_max = (uint32_t)sizeof(s_cache_ui_decline)
+  },
+  {
+    .id = SND_UI_DENIED,
+    .name = "UI Denied",
+    .format = SOUND_FORMAT_IMA_ADPCM,
+    .source = SOUND_SOURCE_LFS,
+    .path = "/audio/UI_Denied.wav",
+    .embedded = NULL,
+    .embedded_len = 0U,
+    .default_gain_q8 = 255U,
+    .flags = SOUND_F_OVERLAP,
+    .default_prio = SOUND_PRIO_UI,
+    .category = SOUND_CAT_UI,
+    .cache = s_cache_ui_denied,
+    .cache_max = (uint32_t)sizeof(s_cache_ui_denied)
+  },
+  {
+    .id = SND_GAME_GHOST,
+    .name = "Game Ghost",
+    .format = SOUND_FORMAT_IMA_ADPCM,
+    .source = SOUND_SOURCE_LFS,
+    .path = "/audio/GAME_ghost.wav",
     .embedded = NULL,
     .embedded_len = 0U,
     .default_gain_q8 = 255U,
     .flags = SOUND_F_OVERLAP,
     .default_prio = SOUND_PRIO_GAME,
-    .cache = s_cache_ghost,
-    .cache_max = (uint32_t)sizeof(s_cache_ghost)
+    .category = SOUND_CAT_SFX,
+    .cache = s_cache_game_ghost,
+    .cache_max = (uint32_t)sizeof(s_cache_game_ghost)
+  },
+  {
+    .id = SND_MUSIC_MEGAMAN,
+    .name = "Music Megaman",
+    .format = SOUND_FORMAT_IMA_ADPCM,
+    .source = SOUND_SOURCE_LFS,
+    .path = "/audio/GAME_music_megaman.wav",
+    .embedded = NULL,
+    .embedded_len = 0U,
+    .default_gain_q8 = 255U,
+    .flags = (sound_flags_t)(SOUND_F_STREAM | SOUND_F_LOOP),
+    .default_prio = SOUND_PRIO_MUSIC,
+    .category = SOUND_CAT_MUSIC,
+    .cache = NULL,
+    .cache_max = 0U
   }
 };
 

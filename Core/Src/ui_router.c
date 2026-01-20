@@ -97,13 +97,18 @@ void ui_router_set_page(const ui_page_t *page)
   }
 }
 
-bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
+bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action, uint8_t *out_handled)
 {
   bool render = false;
+  bool handled = false;
 
   if (out_action != NULL)
   {
     *out_action = UI_ROUTER_ACTION_NONE;
+  }
+  if (out_handled != NULL)
+  {
+    *out_handled = 0U;
   }
 
   if (s_page == &PAGE_MENU)
@@ -131,6 +136,7 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
           active->index--;
         }
         render = true;
+        handled = true;
       }
     }
     else if ((evt == UI_EVT_NAV_DOWN) || (evt == UI_EVT_NAV_RIGHT) || (evt == UI_EVT_INC))
@@ -139,6 +145,7 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
       {
         active->index = (uint8_t)((active->index + 1U) % count);
         render = true;
+        handled = true;
       }
     }
     else if (evt == UI_EVT_SELECT)
@@ -150,12 +157,14 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
         {
           ui_router_set_page(item->target.page);
           render = true;
+          handled = true;
         }
       }
       else if (item->type == UI_MENU_ITEM_SUBMENU)
       {
         ui_menu_push(item->target.submenu);
         render = true;
+        handled = true;
       }
       else if (item->type == UI_MENU_ITEM_COMMAND)
       {
@@ -164,10 +173,12 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
           if (item->target.cmd == UI_MENU_CMD_START_RENDER_DEMO)
           {
             *out_action = UI_ROUTER_ACTION_START_RENDER_DEMO;
+            handled = true;
           }
           else if (item->target.cmd == UI_MENU_CMD_SAVE_EXIT)
           {
             *out_action = UI_ROUTER_ACTION_SAVE_EXIT;
+            handled = true;
           }
         }
       }
@@ -178,6 +189,7 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
       {
         s_menu_depth--;
         render = true;
+        handled = true;
       }
     }
   }
@@ -188,11 +200,22 @@ bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action)
     {
       ui_router_set_page(&PAGE_MENU);
       render = true;
+      handled = true;
     }
     if ((result & UI_PAGE_EVENT_RENDER) != 0U)
     {
       render = true;
+      handled = true;
     }
+    if ((result & UI_PAGE_EVENT_HANDLED) != 0U)
+    {
+      handled = true;
+    }
+  }
+
+  if (out_handled != NULL)
+  {
+    *out_handled = handled ? 1U : 0U;
   }
 
   return render;

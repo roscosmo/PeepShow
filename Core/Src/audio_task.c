@@ -62,6 +62,7 @@ typedef struct
   sound_id_t id;
   sound_prio_t prio;
   sound_flags_t flags;
+  sound_category_t category;
   uint8_t gain_q8;
   wav_info_t wav;
   adpcm_state_t adpcm;
@@ -76,8 +77,9 @@ static const uint32_t kAudioFlagError = (1UL << 2U);
 static const uint32_t kAudioSampleRate = 16000U;
 static const uint8_t kAudioVolumeMax = 10U;
 static const uint8_t kAudioVolumeDefault = 7U;
-static const uint32_t kAudioStreamPrebufferMin = 1024U;
+static const uint32_t kAudioStreamPrebufferMin = 512U;
 static const uint32_t kAudioStreamPrebufferMax = 2048U;
+static const uint32_t kAudioStreamRetryMaxTries = 100U;
 
 static const int16_t kImaStepTable[89] =
 {
@@ -114,11 +116,39 @@ static uint8_t s_stream_gain_q8 = 0U;
 static uint8_t s_stream_wait = 0U;
 static uint8_t s_stream_done = 0U;
 static uint8_t s_stream_active = 0U;
+static uint8_t s_stream_retry = 0U;
+static sound_id_t s_stream_retry_id = SND_COUNT;
+static sound_flags_t s_stream_retry_flags = 0U;
+static uint32_t s_stream_retry_tries = 0U;
 static volatile uint8_t s_audio_volume = kAudioVolumeDefault;
+static uint8_t s_category_volume[SOUND_CAT_COUNT] = {5U, 5U, 5U};
 static uint8_t s_audio_power_ref = 0U;
 static uint8_t s_audio_dma_circular = 0U;
 static DMA_QListTypeDef s_audio_dma_queue;
 static DMA_NodeTypeDef s_audio_dma_node;
+
+static uint8_t audio_volume_to_q8(uint8_t level)
+{
+  if (level >= kAudioVolumeMax)
+  {
+    return 255U;
+  }
+  return (uint8_t)(((uint32_t)level * 255U) / kAudioVolumeMax);
+}
+
+static uint8_t audio_scale_gain_q8(uint8_t gain_q8, uint8_t scale_q8)
+{
+  return (uint8_t)(((uint32_t)gain_q8 * scale_q8) / 255U);
+}
+
+static uint8_t audio_category_gain_q8(sound_category_t category)
+{
+  if ((uint32_t)category >= (uint32_t)SOUND_CAT_COUNT)
+  {
+    return 255U;
+  }
+  return audio_volume_to_q8(s_category_volume[category]);
+}
 
 static uint16_t audio_read_u16_le(const uint8_t *data)
 {
@@ -973,10 +1003,66 @@ static void audio_update_hw_state(void)
   audio_hw_stop();
 }
 
+static void audio_stream_retry_clear(void)
+{
+  s_stream_retry = 0U;
+  s_stream_retry_id = SND_COUNT;
+  s_stream_retry_flags = 0U;
+  s_stream_retry_tries = 0U;
+}
+
+static void audio_stream_retry_set(sound_id_t id, sound_flags_t flags)
+{
+  s_stream_retry = 1U;
+  s_stream_retry_id = id;
+  s_stream_retry_flags = flags;
+  s_stream_retry_tries = 0U;
+}
+
+static uint8_t audio_stream_retry_try_open(void)
+{
+  if ((s_stream_retry == 0U) || (s_stream_active != 0U) || (s_stream_wait != 0U))
+  {
+    return 0U;
+  }
+
+  if (s_stream_retry_tries >= kAudioStreamRetryMaxTries)
+  {
+    audio_stream_retry_clear();
+    return 0U;
+  }
+
+  const sound_registry_entry_t *entry = sound_registry_get(s_stream_retry_id);
+  if ((entry == NULL) || (entry->path == NULL))
+  {
+    audio_stream_retry_clear();
+    return 0U;
+  }
+
+  s_stream_retry_tries++;
+  if (!storage_request_stream_open(entry->path))
+  {
+    return 0U;
+  }
+
+  s_stream_id = entry->id;
+  s_stream_flags = s_stream_retry_flags;
+  s_stream_gain_q8 = audio_scale_gain_q8(entry->default_gain_q8,
+                                         audio_category_gain_q8(entry->category));
+  s_stream_wait = 1U;
+  s_stream_done = 0U;
+  s_stream_bytes_left = 0U;
+  s_stream_prebuffer = 0U;
+  audio_adpcm_stream_reset(&s_stream_adpcm);
+  audio_stream_retry_clear();
+  return 1U;
+}
+
 static void audio_stream_stop(void)
 {
   if ((s_stream_active == 0U) && (s_stream_wait == 0U))
   {
+    audio_stream_retry_clear();
     return;
   }
 
@@ -988,6 +1074,7 @@ static void audio_stream_stop(void)
   s_stream_id = SND_COUNT;
   s_stream_flags = 0U;
   s_stream_gain_q8 = 0U;
+  audio_stream_retry_clear();
   audio_adpcm_stream_reset(&s_stream_adpcm);
 
   if (storage_stream_is_active() != 0U)
@@ -1003,6 +1090,16 @@ static void audio_stream_start(const sound_registry_entry_t *entry, sound_flags_
     return;
   }
 
+  if (s_stream_retry != 0U)
+  {
+    if (s_stream_retry_id == entry->id)
+    {
+      audio_stream_retry_clear();
+      return;
+    }
+    audio_stream_retry_clear();
+  }
+
   if ((s_stream_active != 0U) || (s_stream_wait != 0U))
   {
     if ((s_stream_id == entry->id) && ((flags & SOUND_F_OVERLAP) == 0U))
@@ -1015,12 +1112,14 @@ static void audio_stream_start(const sound_registry_entry_t *entry, sound_flags_
 
   if (!storage_request_stream_open(entry->path))
   {
+    audio_stream_retry_set(entry->id, flags);
     return;
   }
 
   s_stream_id = entry->id;
   s_stream_flags = flags;
-  s_stream_gain_q8 = entry->default_gain_q8;
+  s_stream_gain_q8 = audio_scale_gain_q8(entry->default_gain_q8,
+                                         audio_category_gain_q8(entry->category));
   s_stream_wait = 1U;
   s_stream_done = 0U;
   s_stream_bytes_left = 0U;
@@ -1190,7 +1289,9 @@ static uint8_t audio_voice_start(audio_voice_t *voice, const sound_registry_entr
   voice->id = entry->id;
   voice->prio = prio;
   voice->flags = flags;
-  voice->gain_q8 = entry->default_gain_q8;
+  voice->category = entry->category;
+  voice->gain_q8 = audio_scale_gain_q8(entry->default_gain_q8,
+                                       audio_category_gain_q8(entry->category));
   voice->wav = wav;
   audio_adpcm_reset(&voice->adpcm);
   return 1U;
@@ -1261,6 +1362,10 @@ static void audio_handle_stop(sound_id_t id)
     {
       audio_stream_stop();
     }
+  }
+  else if ((s_stream_retry != 0U) && (s_stream_retry_id == id))
+  {
+    audio_stream_retry_clear();
   }
 
   for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
@@ -1344,6 +1449,7 @@ void audio_task_run(void)
 
       if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, 0U) != osOK)
       {
+        (void)audio_stream_retry_try_open();
         continue;
       }
     }
@@ -1354,13 +1460,14 @@ void audio_task_run(void)
         continue;
       }
 
-      uint32_t timeout = (s_stream_wait != 0U) ? 20U : osWaitForever;
+      uint32_t timeout = ((s_stream_wait != 0U) || (s_stream_retry != 0U)) ? 20U : osWaitForever;
       if (osMessageQueueGet(qAudioCmdHandle, &cmd, NULL, timeout) != osOK)
       {
         if (s_stream_wait != 0U)
         {
           (void)audio_stream_try_start();
         }
+        (void)audio_stream_retry_try_open();
         continue;
       }
     }
@@ -1388,16 +1495,18 @@ void audio_task_run(void)
           audio_stop_all();
           break;
         case APP_AUDIO_CMD_KEYCLICK:
-          audio_handle_play(SND_UI_CLICK, SOUND_PRIO_UI, 0U);
+          audio_handle_play(SND_UI_MOVE, SOUND_PRIO_UI, 0U);
           break;
         case APP_AUDIO_CMD_MUSIC_TOGGLE:
         case APP_AUDIO_CMD_FLASH_TOGGLE:
-          audio_handle_play(SND_MUSIC_1, SOUND_PRIO_MUSIC, 0U);
+          audio_handle_play(SND_MUSIC_MEGAMAN, SOUND_PRIO_MUSIC, 0U);
           break;
         default:
           break;
       }
     }
+
+    (void)audio_stream_retry_try_open();
 
     audio_update_hw_state();
   }
@@ -1440,6 +1549,51 @@ void audio_set_volume(uint8_t level)
 uint8_t audio_get_volume(void)
 {
   return s_audio_volume;
+}
+
+void audio_set_category_volume(sound_category_t category, uint8_t level)
+{
+  if ((uint32_t)category >= (uint32_t)SOUND_CAT_COUNT)
+  {
+    return;
+  }
+  if (level > kAudioVolumeMax)
+  {
+    level = kAudioVolumeMax;
+  }
+
+  s_category_volume[category] = level;
+
+  uint8_t cat_gain = audio_category_gain_q8(category);
+  for (uint32_t i = 0U; i < AUDIO_MAX_SFX_VOICES; ++i)
+  {
+    if ((s_sfx_voices[i].active != 0U) && (s_sfx_voices[i].category == category))
+    {
+      const sound_registry_entry_t *entry = sound_registry_get(s_sfx_voices[i].id);
+      if (entry != NULL)
+      {
+        s_sfx_voices[i].gain_q8 = audio_scale_gain_q8(entry->default_gain_q8, cat_gain);
+      }
+    }
+  }
+
+  if (s_stream_id != SND_COUNT)
+  {
+    const sound_registry_entry_t *entry = sound_registry_get(s_stream_id);
+    if ((entry != NULL) && (entry->category == category))
+    {
+      s_stream_gain_q8 = audio_scale_gain_q8(entry->default_gain_q8, cat_gain);
+    }
+  }
+}
+
+uint8_t audio_get_category_volume(sound_category_t category)
+{
+  if ((uint32_t)category >= (uint32_t)SOUND_CAT_COUNT)
+  {
+    return 0U;
+  }
+  return s_category_volume[category];
 }
 
 uint8_t audio_is_active(void)

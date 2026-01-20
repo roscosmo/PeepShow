@@ -30,6 +30,14 @@ typedef enum
   SOUND_PRIO_SYSTEM = 4
 } sound_prio_t;
 
+typedef enum
+{
+  SOUND_CAT_UI = 0,
+  SOUND_CAT_SFX = 1,
+  SOUND_CAT_MUSIC = 2,
+  SOUND_CAT_COUNT
+} sound_category_t;
+
 typedef uint16_t sound_flags_t;
 
 #define SOUND_F_OVERLAP         (1U << 0U)
@@ -40,9 +48,12 @@ typedef uint16_t sound_flags_t;
 
 typedef enum
 {
-  SND_UI_CLICK = 0,
-  SND_MUSIC_1 = 1,
-  SND_GHOST = 2,
+  SND_UI_MOVE = 0,
+  SND_UI_CONFIRM = 1,
+  SND_UI_DECLINE = 2,
+  SND_UI_DENIED = 3,
+  SND_GAME_GHOST = 4,
+  SND_MUSIC_MEGAMAN = 5,
   SND_COUNT
 } sound_id_t;
 
@@ -58,6 +69,7 @@ typedef struct
   uint8_t default_gain_q8;
   sound_flags_t flags;
   sound_prio_t default_prio;
+  sound_category_t category;
   uint8_t *cache;
   uint32_t cache_max;
 } sound_registry_entry_t;

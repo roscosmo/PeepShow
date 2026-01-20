@@ -25,7 +25,7 @@ void game_task_run(void)
     uint32_t button_id = (event & 0xFFU);
     if (button_id == (uint32_t)APP_BUTTON_B)
     {
-      sound_play(SND_MUSIC_1);
+      sound_play(SND_MUSIC_MEGAMAN);
       continue;
     }
     if (button_id == (uint32_t)APP_BUTTON_L)

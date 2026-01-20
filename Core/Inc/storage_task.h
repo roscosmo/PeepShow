@@ -37,7 +37,9 @@ typedef enum
   STORAGE_OP_STREAM_TEST = 14,
   STORAGE_OP_STREAM_OPEN = 15,
   STORAGE_OP_STREAM_CLOSE = 16,
-  STORAGE_OP_AUDIO_LIST = 17
+  STORAGE_OP_AUDIO_LIST = 17,
+  STORAGE_OP_FORMAT_AUDIO = 18,
+  STORAGE_OP_FORMAT_ALL = 19
 } storage_op_t;
 
 typedef enum
@@ -105,6 +107,8 @@ bool storage_request_stream_test(void);
 bool storage_request_stream_open(const char *path);
 bool storage_request_stream_close(void);
 bool storage_request_audio_list(void);
+bool storage_request_format_audio(void);
+bool storage_request_format_all(void);
 
 bool storage_stream_get_info(storage_stream_info_t *out);
 uint8_t storage_stream_is_active(void);

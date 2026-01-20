@@ -29,7 +29,7 @@ typedef struct
 void ui_router_init(void);
 const ui_page_t *ui_router_get_page(void);
 void ui_router_set_page(const ui_page_t *page);
-bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action);
+bool ui_router_handle_event(ui_evt_t evt, ui_router_action_t *out_action, uint8_t *out_handled);
 void ui_router_render(void);
 void ui_router_get_menu_state(ui_router_menu_state_t *out_state);
 bool ui_router_get_keyclick(void);

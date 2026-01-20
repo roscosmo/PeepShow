@@ -44,18 +44,27 @@ static void ui_apply_settings(uint32_t *seq_cache)
   }
 
   uint8_t volume = 0U;
+  uint8_t volume_ui = 0U;
+  uint8_t volume_sfx = 0U;
+  uint8_t volume_music = 0U;
   uint8_t keyclick = 0U;
   uint8_t sleep_enabled = 0U;
   uint8_t sleep_allow_game = 0U;
   uint32_t sleep_timeout_ms = 0U;
   uint32_t sleep_face_interval_s = 0U;
   (void)settings_get(SETTINGS_KEY_VOLUME, &volume);
+  (void)settings_get(SETTINGS_KEY_VOLUME_UI, &volume_ui);
+  (void)settings_get(SETTINGS_KEY_VOLUME_SFX, &volume_sfx);
+  (void)settings_get(SETTINGS_KEY_VOLUME_MUSIC, &volume_music);
   (void)settings_get(SETTINGS_KEY_KEYCLICK_ENABLED, &keyclick);
   (void)settings_get(SETTINGS_KEY_SLEEP_ENABLED, &sleep_enabled);
   (void)settings_get(SETTINGS_KEY_SLEEP_ALLOW_GAME, &sleep_allow_game);
   (void)settings_get(SETTINGS_KEY_SLEEP_TIMEOUT_MS, &sleep_timeout_ms);
   (void)settings_get(SETTINGS_KEY_SLEEP_FACE_INTERVAL_S, &sleep_face_interval_s);
   audio_set_volume(volume);
+  audio_set_category_volume(SOUND_CAT_UI, volume_ui);
+  audio_set_category_volume(SOUND_CAT_SFX, volume_sfx);
+  audio_set_category_volume(SOUND_CAT_MUSIC, volume_music);
   ui_router_set_keyclick(keyclick != 0U);
   power_task_set_sleep_enabled(sleep_enabled);
   power_task_set_game_sleep_allowed(sleep_allow_game);
@@ -289,19 +298,51 @@ void ui_task_run(void)
       continue;
     }
 
-    if ((seed_mode == 0U) && pressed && ui_router_get_keyclick())
-    {
-      sound_play(SND_UI_CLICK);
-    }
-
     ui_router_action_t action = UI_ROUTER_ACTION_NONE;
-    bool render = ui_router_handle_event(evt, &action);
+    uint8_t handled = 0U;
+    bool render = ui_router_handle_event(evt, &action, &handled);
 
     const ui_page_t *page_after = ui_router_get_page();
     if (page_after != page_before)
     {
       ui_update_sensor_mode(page_after);
       render = true;
+    }
+
+    bool handled_evt = (handled != 0U) || (action != UI_ROUTER_ACTION_NONE) ||
+                       (page_after != page_before);
+    bool suppress_select_confirm = (page_before == &PAGE_STORAGE_AUDIO);
+    if ((seed_mode == 0U) && pressed)
+    {
+      switch (evt)
+      {
+        case UI_EVT_SELECT:
+          if (!suppress_select_confirm)
+          {
+            sound_play(handled_evt ? SND_UI_CONFIRM : SND_UI_DENIED);
+          }
+          else if (!handled_evt)
+          {
+            sound_play(SND_UI_DENIED);
+          }
+          break;
+        case UI_EVT_BACK:
+          sound_play(handled_evt ? SND_UI_DECLINE : SND_UI_DENIED);
+          break;
+        case UI_EVT_DEC:
+        case UI_EVT_INC:
+        case UI_EVT_NAV_UP:
+        case UI_EVT_NAV_DOWN:
+        case UI_EVT_NAV_LEFT:
+        case UI_EVT_NAV_RIGHT:
+          if (ui_router_get_keyclick() && handled_evt)
+          {
+            sound_play(SND_UI_MOVE);
+          }
+          break;
+        default:
+          break;
+      }
     }
 
     if (seed_mode != 0U)
