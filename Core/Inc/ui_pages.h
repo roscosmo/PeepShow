@@ -54,6 +54,7 @@ extern const ui_page_t PAGE_MENU_INPUT;
 extern const ui_page_t PAGE_BATT_STATS;
 extern const ui_page_t PAGE_STORAGE_INFO;
 extern const ui_page_t PAGE_STORAGE_AUDIO;
+extern const ui_page_t PAGE_SEED_AUDIO;
 extern const ui_page_t PAGE_SLEEP;
 extern const ui_page_t PAGE_RTC_SET;
 extern const ui_page_t PAGE_LIS2_IMU;

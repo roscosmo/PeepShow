@@ -80,6 +80,14 @@ typedef struct
   uint8_t music_present;
 } storage_status_t;
 
+typedef enum
+{
+  STORAGE_SEED_IDLE = 0,
+  STORAGE_SEED_ACTIVE = 1,
+  STORAGE_SEED_DONE = 2,
+  STORAGE_SEED_ERROR = 3
+} storage_seed_state_t;
+
 void storage_task_run(void);
 void storage_get_status(storage_status_t *out);
 
@@ -108,6 +116,7 @@ uint32_t storage_audio_list_count(void);
 uint32_t storage_audio_list_seq(void);
 uint8_t storage_audio_list_get(uint32_t index, storage_audio_entry_t *out);
 void storage_set_seed_audio_on_boot(uint8_t enable);
+storage_seed_state_t storage_get_seed_state(void);
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,7 @@
 #include "render_demo.h"
 #include "settings.h"
 #include "sound_manager.h"
+#include "storage_task.h"
 #include "ui_actions.h"
 #include "ui_router.h"
 #include "power_task.h"
@@ -191,8 +192,16 @@ void ui_task_run(void)
   app_ui_event_t ui_event = 0U;
   bool resume_demo = false;
   uint32_t settings_seq = 0U;
+  uint8_t seed_mode = 0U;
+  uint8_t seed_done = 0U;
 
+  seed_mode = (storage_get_seed_state() != STORAGE_SEED_IDLE) ? 1U : 0U;
   ui_router_init();
+  if (seed_mode != 0U)
+  {
+    ui_router_set_page(&PAGE_SEED_AUDIO);
+    power_task_set_sleep_enabled(0U);
+  }
   ui_apply_settings(&settings_seq);
   ui_router_render();
   ui_send_display_invalidate();
@@ -215,6 +224,19 @@ void ui_task_run(void)
 
     ui_apply_settings(&settings_seq);
 
+    if (seed_mode == 0U)
+    {
+      if (storage_get_seed_state() != STORAGE_SEED_IDLE)
+      {
+        seed_mode = 1U;
+        seed_done = 0U;
+        ui_router_set_page(&PAGE_SEED_AUDIO);
+        power_task_set_sleep_enabled(0U);
+        ui_router_render();
+        ui_send_display_invalidate();
+      }
+    }
+
     if (status == osOK)
     {
       g_ui_event_count++;
@@ -233,7 +255,7 @@ void ui_task_run(void)
       }
     }
 
-    if (pressed && (button_id == (uint32_t)APP_BUTTON_BOOT))
+    if ((seed_mode == 0U) && pressed && (button_id == (uint32_t)APP_BUTTON_BOOT))
     {
       if ((mode_flags & APP_MODE_GAME) != 0U)
       {
@@ -247,7 +269,7 @@ void ui_task_run(void)
       continue;
     }
 
-    if ((mode_flags & APP_MODE_GAME) != 0U)
+    if ((seed_mode == 0U) && ((mode_flags & APP_MODE_GAME) != 0U))
     {
       continue;
     }
@@ -267,7 +289,7 @@ void ui_task_run(void)
       continue;
     }
 
-    if (pressed && ui_router_get_keyclick())
+    if ((seed_mode == 0U) && pressed && ui_router_get_keyclick())
     {
       sound_play(SND_UI_CLICK);
     }
@@ -280,6 +302,28 @@ void ui_task_run(void)
     {
       ui_update_sensor_mode(page_after);
       render = true;
+    }
+
+    if (seed_mode != 0U)
+    {
+      storage_seed_state_t seed_state = storage_get_seed_state();
+      if ((seed_state == STORAGE_SEED_DONE) || (seed_state == STORAGE_SEED_ERROR))
+      {
+        seed_done = 1U;
+      }
+      if (render)
+      {
+        ui_router_render();
+        ui_send_display_invalidate();
+      }
+      if (seed_done != 0U)
+      {
+        for (;;)
+        {
+          osDelay(1000U);
+        }
+      }
+      continue;
     }
 
     if (action == UI_ROUTER_ACTION_START_RENDER_DEMO)

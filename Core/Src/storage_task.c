@@ -84,6 +84,7 @@ static uint8_t s_mounted = 0U;
 static uint8_t s_flash_in_dpd = 0U;
 static uint8_t s_stream_active = 0U;
 static uint8_t s_seed_audio_on_boot = 0U;
+static storage_seed_state_t s_seed_state = STORAGE_SEED_IDLE;
 static storage_audio_entry_t s_audio_list[STORAGE_AUDIO_LIST_MAX];
 static uint32_t s_audio_list_count = 0U;
 static uint32_t s_audio_list_seq = 0U;
@@ -667,7 +668,11 @@ static int storage_write_asset_file(const char *path, const uint8_t *data, uint3
 static int storage_seed_audio_assets(uint8_t overwrite)
 {
   int res = lfs_mkdir(&s_lfs, "/audio");
-  if ((res < 0) && (res != LFS_ERR_EXIST))
+  if (res == LFS_ERR_EXIST)
+  {
+    res = 0;
+  }
+  if (res < 0)
   {
     return res;
   }
@@ -1455,11 +1460,18 @@ static void storage_handle_request(storage_op_t op)
         storage_load_settings();
         if (s_seed_audio_on_boot != 0U)
         {
-          (void)storage_seed_audio_assets(1U);
+          s_seed_state = STORAGE_SEED_ACTIVE;
+          int seed_res = storage_seed_audio_assets(1U);
+          s_seed_state = (seed_res == 0) ? STORAGE_SEED_DONE : STORAGE_SEED_ERROR;
           s_seed_audio_on_boot = 0U;
         }
         storage_cache_audio_assets();
         (void)storage_audio_list_update();
+      }
+      else if (s_seed_audio_on_boot != 0U)
+      {
+        s_seed_state = STORAGE_SEED_ERROR;
+        s_seed_audio_on_boot = 0U;
       }
       break;
     }
@@ -1626,11 +1638,18 @@ void storage_task_run(void)
     storage_load_settings();
     if (s_seed_audio_on_boot != 0U)
     {
-      (void)storage_seed_audio_assets(1U);
+      s_seed_state = STORAGE_SEED_ACTIVE;
+      int seed_res = storage_seed_audio_assets(1U);
+      s_seed_state = (seed_res == 0) ? STORAGE_SEED_DONE : STORAGE_SEED_ERROR;
       s_seed_audio_on_boot = 0U;
     }
     storage_cache_audio_assets();
     (void)storage_audio_list_update();
+  }
+  else if (s_seed_audio_on_boot != 0U)
+  {
+    s_seed_state = STORAGE_SEED_ERROR;
+    s_seed_audio_on_boot = 0U;
   }
   storage_status_refresh_stats();
 
@@ -1729,6 +1748,19 @@ uint8_t storage_is_busy(void)
 void storage_set_seed_audio_on_boot(uint8_t enable)
 {
   s_seed_audio_on_boot = (enable != 0U) ? 1U : 0U;
+  if (s_seed_audio_on_boot != 0U)
+  {
+    s_seed_state = STORAGE_SEED_ACTIVE;
+  }
+  else
+  {
+    s_seed_state = STORAGE_SEED_IDLE;
+  }
+}
+
+storage_seed_state_t storage_get_seed_state(void)
+{
+  return s_seed_state;
 }
 
 bool storage_request_remount(void)
