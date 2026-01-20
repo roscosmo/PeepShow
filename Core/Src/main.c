@@ -160,7 +160,7 @@ int main(void)
   HAL_GPIO_WritePin(E5_RST_GPIO_Port, E5_RST_Pin, GPIO_PIN_RESET);
 
   // Enable the VLT to the wio E5
-  HAL_GPIO_WritePin(VLT_E5_GPIO_Port, VLT_E5_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(VLT_E5_GPIO_Port, VLT_E5_Pin, GPIO_PIN_SET);
 
   
   printf("Boot\r\n");

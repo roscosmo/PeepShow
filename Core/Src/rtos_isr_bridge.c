@@ -18,6 +18,35 @@ static const app_button_map_t kButtonMap[] = {
   { BTN_BOOT_Pin, BTN_BOOT_GPIO_Port, APP_BUTTON_BOOT },
 };
 
+void rtos_isr_bridge_set_nonwake_buttons_enabled(uint8_t enable)
+{
+  uint16_t pins = (uint16_t)(BTN_A_Pin | BTN_B_Pin | BTN_BOOT_Pin);
+
+  if (enable != 0U)
+  {
+    SET_BIT(EXTI->IMR1, pins);
+    SET_BIT(EXTI->EMR1, pins);
+    __HAL_GPIO_EXTI_CLEAR_IT(pins);
+    NVIC_ClearPendingIRQ(EXTI1_IRQn);
+    NVIC_ClearPendingIRQ(EXTI2_IRQn);
+    NVIC_ClearPendingIRQ(EXTI3_IRQn);
+    HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+    HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+    HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+    return;
+  }
+
+  HAL_NVIC_DisableIRQ(EXTI1_IRQn);
+  HAL_NVIC_DisableIRQ(EXTI2_IRQn);
+  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
+  CLEAR_BIT(EXTI->IMR1, pins);
+  CLEAR_BIT(EXTI->EMR1, pins);
+  __HAL_GPIO_EXTI_CLEAR_IT(pins);
+  NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  NVIC_ClearPendingIRQ(EXTI2_IRQn);
+  NVIC_ClearPendingIRQ(EXTI3_IRQn);
+}
+
 void rtos_isr_bridge_handle_exti(uint16_t gpio_pin)
 {
   g_exti_callback_count++;

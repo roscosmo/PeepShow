@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "storage_task.h"
 #include "sleep_face.h"
+#include "rtos_isr_bridge.h"
 
 #include "cmsis_os2.h"
 #include "main.h"
@@ -709,6 +710,10 @@ static void power_task_configure_lpuart_wakeup(void)
 
 static void power_task_enter_stop2(void)
 {
+  if (s_sleepface_active != 0U)
+  {
+    rtos_isr_bridge_set_nonwake_buttons_enabled(0U);
+  }
   power_task_configure_lpuart_wakeup();
   HAL_SuspendTick();
   (void)HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
@@ -720,6 +725,10 @@ static void power_task_enter_stop2(void)
   else
   {
     power_task_restore_full_clocks();
+  }
+  if (s_sleepface_active != 0U)
+  {
+    rtos_isr_bridge_set_nonwake_buttons_enabled(1U);
   }
   power_task_configure_lpuart_wakeup();
 }

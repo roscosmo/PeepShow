@@ -57,6 +57,7 @@ static const uint32_t kButtonDebounceMs = 20U;
 static uint32_t s_btn_last_tick[APP_BUTTON_COUNT];
 static uint8_t s_sleep_wake_l = 0U;
 static uint8_t s_sleep_wake_r = 0U;
+static uint8_t s_sleep_wake_consume = 0U;
 
 volatile uint32_t g_input_task_started = 0U;
 volatile uint32_t g_input_last_flags = 0U;
@@ -535,6 +536,28 @@ static void app_input_process_event(const app_input_event_t *evt)
     return;
   }
 
+  if (s_sleep_wake_consume != 0U)
+  {
+    if (evt->button_id == (uint8_t)APP_BUTTON_L)
+    {
+      s_sleep_wake_l = (evt->pressed != 0U) ? 1U : 0U;
+      if ((s_sleep_wake_l == 0U) && (s_sleep_wake_r == 0U))
+      {
+        s_sleep_wake_consume = 0U;
+      }
+      return;
+    }
+    if (evt->button_id == (uint8_t)APP_BUTTON_R)
+    {
+      s_sleep_wake_r = (evt->pressed != 0U) ? 1U : 0U;
+      if ((s_sleep_wake_l == 0U) && (s_sleep_wake_r == 0U))
+      {
+        s_sleep_wake_consume = 0U;
+      }
+      return;
+    }
+  }
+
   uint32_t now = osKernelGetTickCount();
   if (power_task_is_sleepface_active() != 0U)
   {
@@ -557,6 +580,7 @@ static void app_input_process_event(const app_input_event_t *evt)
 
     if ((s_sleep_wake_l != 0U) && (s_sleep_wake_r != 0U))
     {
+      s_sleep_wake_consume = 1U;
       power_task_activity_ping();
       uint32_t mode_flags = 0U;
       if (egModeHandle != NULL)
@@ -571,6 +595,11 @@ static void app_input_process_event(const app_input_event_t *evt)
       {
         ui_router_render();
         app_display_cmd_t cmd = APP_DISPLAY_CMD_INVALIDATE;
+        (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
+      }
+      else
+      {
+        app_display_cmd_t cmd = APP_DISPLAY_CMD_RENDER_DEMO;
         (void)osMessageQueuePut(qDisplayCmdHandle, &cmd, 0U, 0U);
       }
       return;
