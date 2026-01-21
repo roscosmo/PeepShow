@@ -75,7 +75,7 @@ static const uint32_t kAudioFlagError = (1UL << 2U);
 #define AUDIO_MAX_SFX_VOICES 5U
 
 static const uint32_t kAudioSampleRate = 16000U;
-static const uint8_t kAudioVolumeMax = 10U;
+static const uint8_t kAudioVolumeMax = 20U;
 static const uint8_t kAudioVolumeDefault = 7U;
 static const uint32_t kAudioStreamPrebufferMin = 512U;
 static const uint32_t kAudioStreamPrebufferMax = 2048U;
