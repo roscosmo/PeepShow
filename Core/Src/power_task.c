@@ -32,6 +32,7 @@ static const uint32_t kFlashLatencyMid = FLASH_LATENCY_2;
 static const uint32_t kFlashLatencyTurbo = FLASH_LATENCY_4;
 static const uint32_t kSleepfaceHoldMs = 50U;
 static const uint32_t kSleepfaceInputHoldMs = 50U;
+static const uint32_t kSleepfaceWakeHoldMs = 500U;
 static const uint32_t kSleepfaceLvcoIntervalS = 60U;
 static const uint32_t kSleepfaceIntervalDefaultS = 1U;
 
@@ -54,6 +55,7 @@ static uint8_t s_rtc_settings_applied = 0U;
 static volatile uint8_t s_sleepface_interval_dirty = 0U;
 static volatile uint32_t s_sleepface_interval_s = kSleepfaceIntervalDefaultS;
 static uint32_t s_sleepface_hold_until = 0U;
+static uint32_t s_sleepface_wake_hold_until = 0U;
 static uint32_t s_lvco_accum_s = 0U;
 static power_rtc_datetime_t s_rtc_set_value = {0};
 static volatile uint8_t s_sleepface_minimal_clocks = 0U;
@@ -699,6 +701,23 @@ static void power_task_quiesce_kick(void)
   }
 }
 
+static uint8_t power_task_wake_hold_active(void)
+{
+  if (s_sleepface_wake_hold_until == 0U)
+  {
+    return 0U;
+  }
+
+  uint32_t now = osKernelGetTickCount();
+  if ((int32_t)(now - s_sleepface_wake_hold_until) < 0)
+  {
+    return 1U;
+  }
+
+  s_sleepface_wake_hold_until = 0U;
+  return 0U;
+}
+
 static void power_task_configure_lpuart_wakeup(void)
 {
   UART_WakeUpTypeDef wake = {0};
@@ -749,6 +768,12 @@ static void power_task_try_sleep(void)
   {
     s_sleep_pending = 0U;
     power_task_activity_ping();
+    return;
+  }
+
+  if (power_task_wake_hold_active() != 0U)
+  {
+    s_sleep_pending = 0U;
     return;
   }
 
@@ -828,6 +853,16 @@ void power_task_run(void)
       power_task_restore_full_clocks();
     }
 
+    if (power_task_wake_hold_active() != 0U)
+    {
+      s_sleep_pending = 0U;
+      if (s_rtc_alarm_pending != 0U)
+      {
+        s_rtc_alarm_pending = 0U;
+        power_task_rtc_disable_alarm();
+      }
+    }
+
     uint32_t timeout = (s_sleep_pending != 0U) ? 20U : osWaitForever;
     if (s_rtc_settings_applied == 0U)
     {
@@ -900,7 +935,10 @@ void power_task_run(void)
           }
           break;
         case APP_SYS_EVENT_INACTIVITY:
-          s_sleep_pending = 1U;
+          if (power_task_wake_hold_active() == 0U)
+          {
+            s_sleep_pending = 1U;
+          }
           break;
         case APP_SYS_EVENT_PERF_MODE:
           if (s_in_game != 0U)
@@ -960,6 +998,8 @@ void power_task_activity_ping(void)
   {
     s_sleepface_active = 0U;
     s_lvco_accum_s = 0U;
+    s_sleepface_wake_hold_until = osKernelGetTickCount() + kSleepfaceWakeHoldMs;
+    s_rtc_alarm_pending = 0U;
     power_task_rtc_disable_alarm();
   }
 
