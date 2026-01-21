@@ -60,6 +60,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/display_task.c
     Core/Src/display_renderer.c
     Core/Src/render_demo.c
+    Core/Src/Sprites/keyboardBonW.c
     Core/Src/ui_router.c
     Core/Src/ui_menu.c
     Core/Src/ui_actions.c
@@ -103,7 +104,8 @@ set_source_files_properties(Core/Src/render_demo.c PROPERTIES
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    Core/Inc
+    Core/Inc/Sprites
 )
 
 # Add project symbols (macros)

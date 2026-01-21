@@ -1096,3 +1096,110 @@ void renderBlit1bppMsb(uint16_t x, uint16_t y, uint16_t width, uint16_t height, 
     }
   }
 }
+
+
+// display_renderer.c
+
+void renderDrawCharScaled(uint16_t x, uint16_t y, char ch, uint8_t scale, render_layer_t layer, render_state_t fg)
+{
+  if (scale == 0U)
+  {
+    scale = 1U;
+  }
+  if (scale > 4U)
+  {
+    scale = 4U;
+  }
+
+  if (scale == 1U)
+  {
+    renderDrawChar(x, y, ch, layer, fg);
+    return;
+  }
+
+  uint8_t code = (uint8_t)ch;
+  if ((code < (uint8_t)FONT8X8_START_CHAR) || (code > (uint8_t)FONT8X8_END_CHAR))
+  {
+    code = (uint8_t)'?';
+  }
+
+  const uint8_t *glyph = font8x8_basic[code];
+
+  for (uint16_t row = 0U; row < (uint16_t)FONT8X8_HEIGHT; ++row)
+  {
+    uint8_t bits = glyph[row];
+
+    for (uint16_t col = 0U; col < (uint16_t)FONT8X8_WIDTH; ++col)
+    {
+      if ((bits & (uint8_t)(1U << col)) != 0U)
+      {
+        uint16_t px = (uint16_t)(x + (uint16_t)(col * scale));
+        uint16_t py = (uint16_t)(y + (uint16_t)(row * scale));
+        renderFillRect(px, py, (uint16_t)scale, (uint16_t)scale, layer, fg);
+      }
+    }
+  }
+}
+
+void renderDrawTextScaled(uint16_t x, uint16_t y, const char *text, uint8_t scale, render_layer_t layer, render_state_t fg)
+{
+  if (text == NULL)
+  {
+    return;
+  }
+
+  if (scale == 0U)
+  {
+    scale = 1U;
+  }
+  if (scale > 4U)
+  {
+    scale = 4U;
+  }
+
+  if (scale == 1U)
+  {
+    renderDrawText(x, y, text, layer, fg);
+    return;
+  }
+
+  uint16_t width = renderGetWidth();
+  uint16_t height = renderGetHeight();
+  if ((width == 0U) || (height == 0U))
+  {
+    return;
+  }
+
+  uint16_t cursor_x = x;
+  uint16_t cursor_y = y;
+
+  uint16_t advance_x = (uint16_t)(((uint16_t)FONT8X8_WIDTH + 1U) * (uint16_t)scale);
+  uint16_t advance_y = (uint16_t)(((uint16_t)FONT8X8_HEIGHT + 1U) * (uint16_t)scale);
+
+  for (const char *ptr = text; *ptr != '\0'; ++ptr)
+  {
+    if (*ptr == '\n')
+    {
+      cursor_x = x;
+      cursor_y = (uint16_t)(cursor_y + advance_y);
+      if (cursor_y >= height)
+      {
+        break;
+      }
+      continue;
+    }
+
+    renderDrawCharScaled(cursor_x, cursor_y, *ptr, scale, layer, fg);
+
+    cursor_x = (uint16_t)(cursor_x + advance_x);
+    if ((uint16_t)(cursor_x + ((uint16_t)FONT8X8_WIDTH * (uint16_t)scale)) > width)
+    {
+      cursor_x = x;
+      cursor_y = (uint16_t)(cursor_y + advance_y);
+      if (cursor_y >= height)
+      {
+        break;
+      }
+    }
+  }
+}

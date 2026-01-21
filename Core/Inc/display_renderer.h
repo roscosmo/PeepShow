@@ -66,6 +66,11 @@ void renderBlit1bpp(uint16_t x, uint16_t y, uint16_t width, uint16_t height, con
                     uint16_t stride_bytes, render_layer_t layer, render_state_t fg);
 void renderBlit1bppMsb(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *data,
                        uint16_t stride_bytes, render_layer_t layer, render_state_t fg);
+void renderDrawCharScaled(uint16_t x, uint16_t y, char ch, uint8_t scale, render_layer_t layer, render_state_t fg);
+void renderDrawTextScaled(uint16_t x, uint16_t y, const char *text, uint8_t scale, render_layer_t layer, render_state_t fg);
+
+
+
 
 #ifdef __cplusplus
 }
